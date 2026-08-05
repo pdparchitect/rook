@@ -32,6 +32,10 @@ const DefaultBackend = "relay"
 // Config is the fully-resolved Rook configuration.
 type Config struct {
 	Agent Agent `yaml:"agent"`
+	// RunDir is the base directory under which each run writes its artifacts (a
+	// per-run subdirectory with status.json and events.jsonl). Empty uses the
+	// built-in default, $XDG_STATE_HOME/rook/runs.
+	RunDir string `yaml:"run_dir"`
 	// DefaultBackend is the backend used when --backend is not given.
 	DefaultBackend string `yaml:"default_backend"`
 	// Backends are the named providers a run can target. Rook ships with three -

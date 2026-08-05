@@ -49,6 +49,7 @@ func main() {
 	maxIter := flags.Int("max-iterations", 0, "maximum agent iterations before forced stop (overrides config)")
 	scope := flags.String("scope", "", "authorization boundary (hosts, repos, paths) the agent must stay within")
 	scopeFile := flags.String("scope-file", "", "read the authorization scope from a file")
+	runDir := flags.String("run-dir", "", "base directory for per-run artifacts (default: $ROOK_RUN_DIR or ~/.local/state/rook/runs)")
 	verbose := flags.BoolP("verbose", "v", false, "stream the agent's reasoning tokens to stdout")
 	showVersion := flags.BoolP("version", "V", false, "print version and exit")
 
@@ -132,6 +133,11 @@ func main() {
 		resolvedScope = string(data)
 	}
 
+	// Every run writes artifacts (status + log) under a base run directory:
+	// flag, then config, then the built-in XDG default.
+	resolvedRunDir := firstNonEmpty(*runDir, cfg.RunDir, config.DefaultRunDir())
+	resolvedRunDir = expandPath(resolvedRunDir)
+
 	// Strip backend credentials from the environment before the agent runs, so
 	// the commands it executes against a target cannot read them. The resolved
 	// secret is still handed to the SDK client below.
@@ -148,6 +154,7 @@ func main() {
 		Task:          task,
 		Scope:         resolvedScope,
 		Verbose:       *verbose,
+		RunDir:        resolvedRunDir,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "\nError: %v\n", err)
@@ -208,6 +215,22 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+// expandPath expands a leading ~ and any $ENV references in a path.
+func expandPath(p string) string {
+	p = os.ExpandEnv(p)
+	switch {
+	case p == "~":
+		if h, err := os.UserHomeDir(); err == nil {
+			return h
+		}
+	case strings.HasPrefix(p, "~/"):
+		if h, err := os.UserHomeDir(); err == nil {
+			return filepath.Join(h, p[2:])
+		}
+	}
+	return p
 }
 
 // notifyUpdate prints a one-line notice to stderr when a newer release exists.

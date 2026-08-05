@@ -27,6 +27,12 @@ agent:
   # Safety cap on plan/act/observe cycles before the agent is forced to stop.
   max_iterations: 1000000
 
+# Run artifacts. Every run writes status.json (live state) and events.jsonl (an
+# append-only log) into <run_dir>/<runid>/. This is telemetry - what the desktop
+# status widget reads - and is separate from the workspace the agent works in.
+# Default: $XDG_STATE_HOME/rook/runs (i.e. ~/.local/state/rook/runs).
+# run_dir: '~/.local/state/rook/runs'
+
 # Backends are the providers a run can target. Rook ships with three - "relay"
 # (CBK Relay), "cbk" (ChatBotKit at api.cbk.ai) and "chatbotkit" (ChatBotKit at
 # api.chatbotkit.com). Pick one per run with --backend; otherwise default_backend

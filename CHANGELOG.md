@@ -2,6 +2,12 @@
 
 All notable changes to Rook, following [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/).
 
+## [0.4.0] - 2026-08-05
+
+### Features
+
+- Run artifacts: every run now writes its own `status.json` (live state: model, scope, iteration, current tool, timestamps, exit) and `events.jsonl` (an append-only event log) into a per-run directory `<run_dir>/<runid>/`. This is telemetry, separate from the workspace the agent works in, and is what the desktop status widget reads. It is always on, multi-instance safe (`<runid>` is `<timestamp>-<pid>`), and the base directory is `$XDG_STATE_HOME/rook/runs` by default (override with `--run-dir`, `run_dir` in config, or `$ROOK_RUN_DIR`).
+
 ## [0.3.0] - 2026-08-05
 
 ### Features

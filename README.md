@@ -9,8 +9,7 @@ with a library of security skills embedded directly into the binary - no externa
 files, no setup beyond a provider key.
 
 Give Rook a target and a scope, and it works through the problem the way a
-researcher would: reconnaissance, analysis, hypothesis, verification, and a
-written report.
+researcher would.
 
 > ⚠️ **Authorized use only.** Rook is an offensive-security tool. Only run it
 > against systems, code and services you own or are explicitly authorized to
@@ -180,7 +179,7 @@ backends:
     # authorization: $ZAI_API_KEY   # optional: one default key for all relay models
     models:
       glm-5.2:
-        authorization: $ZAI_API_KEY      # or paste the key literally
+        authorization: $ZAI_API_KEY # or paste the key literally
       kimi-k3:
         authorization: $MOONSHOT_API_KEY
       deepseek-v4-flash:
@@ -258,6 +257,29 @@ allowedRoutes:
 Route patterns omit the `/v1/` prefix. See
 [How to Create Scoped API Tokens](https://chatbotkit.com/tutorials/how-to-create-scoped-api-tokens-for-restricted-access)
 for the full guide.
+
+## Files & directories
+
+Rook uses three distinct locations - it helps to keep them straight:
+
+| Location          | What it holds                                                                                                                                               | Default path                                                                                                     |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| **Workspace**     | The directory Rook works _in_ - what it reads, edits, and runs commands against. Any file the agent writes (a report you asked for, a PoC) lands here.      | the current working directory (the desktop image opens in `/workspace`)                                          |
+| **Run artifacts** | Rook's own record of _each run_: `status.json` (live state) and `events.jsonl` (append-only log). Telemetry, not work product - the status widget reads it. | `~/.local/state/rook/runs/<runid>/` (`$XDG_STATE_HOME`; override with `--run-dir` / `run_dir` / `$ROOK_RUN_DIR`) |
+| **Config**        | Your settings and provider keys.                                                                                                                            | `~/.config/rook/config.yaml` (`$ROOK_CONFIG` / `--config`)                                                       |
+
+The **run** is Rook's log of _what it did_; the **workspace** is _where it did
+it_. They never mix: run artifacts are telemetry under your state directory,
+while the agent's file writes stay in the workspace.
+
+Rook does not create files in the workspace on its own - the findings **report**
+is delivered as the agent's response. If you want it saved, ask for it in the
+task and the agent writes it into the workspace, e.g.
+`rook --scope "repo: ., read-only" "audit this repo and write the report to report.md"`.
+
+Each run gets its own `runs/<runid>/` directory (`<timestamp>-<pid>`), so
+concurrent runs never overwrite each other; the desktop widget shows the most
+recent active run.
 
 ## Usage
 
