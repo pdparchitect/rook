@@ -151,24 +151,27 @@ make build      # → ./rook
 
 ## Backends
 
-A run targets a **backend** - the provider Rook talks to. Three ship built in:
+A run targets a **backend** - the provider Rook talks to. Rook defaults to
+**`relay`**; the ChatBotKit backends are an alternative for account holders. Pick
+one with `--backend` or `default_backend` in config.
 
-| Backend      | Endpoint                     | Auth style | Credential              |
-| ------------ | ---------------------------- | ---------- | ----------------------- |
-| `relay`      | `https://relay.cbk.ai`       | per-model  | provider key per model  |
-| `cbk`        | `https://api.cbk.ai`         | Bearer     | `CBK_API_SECRET`        |
-| `chatbotkit` | `https://api.chatbotkit.com` | Bearer     | `CHATBOTKIT_API_SECRET` |
+| Backend      | Endpoint                     | Auth style | Credential                   |
+| ------------ | ---------------------------- | ---------- | ---------------------------- |
+| `relay`      | `https://relay.cbk.ai`       | per-model  | your provider key, per model |
+| `cbk`        | `https://api.cbk.ai`         | Bearer     | `CBK_API_SECRET`             |
+| `chatbotkit` | `https://api.chatbotkit.com` | Bearer     | `CHATBOTKIT_API_SECRET`      |
 
-Rook defaults to **`relay`**. Pick another with `--backend` (or `default_backend`
-in config). Model names come from the ChatBotKit catalogue and are resolved
-against the chosen backend; open models like `glm-5.2`, `kimi-k3` and
-`deepseek-v4-flash` suit autonomous security work.
+Model names come from the ChatBotKit catalogue and are resolved against the
+chosen backend; open models like `glm-5.2`, `kimi-k3` and `deepseek-v4-flash`
+suit bug-hunting work.
 
-The two ChatBotKit backends authenticate with a Bearer token. The **relay is
-different**: it authenticates each model with _its own provider key_, carried
-inside the model string as `<model>/authorization=<key>` - because on the relay
-each model is a different provider (Z.AI, Moonshot, DeepSeek, …) with a different
-key. So relay auth is configured **per model**:
+### `relay` — the default (bring your own key)
+
+The CBK Relay is a free proxy, and **there is no relay API key.** It
+authenticates each model with _your own provider key_, carried inside the model
+string as `<model>/authorization=<key>` - because on the relay each model is a
+different provider (Z.AI, Moonshot, DeepSeek, …) with its own key. So you set the
+key **per model** in config (paste it literally, or reference an env var):
 
 ```yaml
 default_backend: relay
@@ -177,31 +180,37 @@ backends:
     # authorization: $ZAI_API_KEY   # optional: one default key for all relay models
     models:
       glm-5.2:
-        authorization: $ZAI_API_KEY
+        authorization: $ZAI_API_KEY      # or paste the key literally
       kimi-k3:
         authorization: $MOONSHOT_API_KEY
       deepseek-v4-flash:
         authorization: $DEEPSEEK_API_KEY
 ```
 
-There is no single relay API key - the credential is your own provider key, set
-per model (or as a backend-level default) in config.
-
 ```bash
 export ZAI_API_KEY="sk-..."
-rook --model glm-5.2 "…"         # → sends model glm-5.2/authorization=sk-... to the relay
-
-# You can also inline the key yourself; Rook leaves it untouched:
-rook --model 'glm-5.2/authorization=sk-...' "…"
-
-# The ChatBotKit backends just need their Bearer token:
-export CBK_API_SECRET="..."
-rook --backend cbk --model kimi-k3 "…"
+rook --model glm-5.2 "…"                          # sends glm-5.2/authorization=sk-... to the relay
+rook --model 'glm-5.2/authorization=sk-...' "…"   # or inline it; Rook leaves it as-is
 ```
 
 Rook composes the `authorization=` param onto the model automatically from the
-per-model (or backend-level) config; a key you inline into `--model` yourself is
-left as-is.
+per-model (or backend-level) config; a key you inline into `--model` is left as-is.
+
+### `cbk` / `chatbotkit` — ChatBotKit account backends
+
+If you have a ChatBotKit account, target it directly with a Bearer token instead
+of bringing per-model keys. `cbk` and `chatbotkit` are the same platform on its
+two hosts and take the same credential value under their own variable:
+
+```bash
+export CBK_API_SECRET="..."          # or CHATBOTKIT_API_SECRET for --backend chatbotkit
+rook --backend cbk --model glm-5.2 "…"
+```
+
+Provide the token via that env var, or as `api_secret` under the backend in
+config. Create one on the Tokens page
+([chatbotkit.com/tokens](https://chatbotkit.com/tokens)); an account is at
+[chatbotkit.com](https://chatbotkit.com) or [console.cbk.ai](https://console.cbk.ai).
 
 ## Configuration
 
@@ -223,11 +232,6 @@ convenience. See [configs/rook.example.yaml](configs/rook.example.yaml).
 
 Rook strips the resolved backend credential from the environment before the
 agent runs, so the commands it executes against a target cannot read it.
-
-To create ChatBotKit credentials: make an account at
-[chatbotkit.com](https://chatbotkit.com) or
-[console.cbk.ai](https://console.cbk.ai) and a token on the Tokens page
-([chatbotkit.com/tokens](https://chatbotkit.com/tokens)).
 
 ### Recommended: run under a sub-account
 
