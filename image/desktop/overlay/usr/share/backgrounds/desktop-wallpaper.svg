@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080">
+  <!--
+    Rook desktop ground: obsidian, with a single crimson ember low on the left
+    and a cold graphite lift on the right, so the terminal reads as the subject
+    and this is only the dark behind it. The red-team signature is present but
+    banked - a glow, not a wash.
+
+    Built from gradients rather than a blurred shape, because SVG filters are
+    the one thing a wallpaper loader may not implement, and artwork that
+    silently disappears is worse than an effect never used.
+  -->
+  <defs>
+    <linearGradient id="field" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#111319"/>
+      <stop offset="55%" stop-color="#0E0F13"/>
+      <stop offset="100%" stop-color="#0A0B0E"/>
+    </linearGradient>
+    <radialGradient id="ember" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#DE3B4B" stop-opacity=".30"/>
+      <stop offset="55%" stop-color="#DE3B4B" stop-opacity=".08"/>
+      <stop offset="100%" stop-color="#DE3B4B" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="lift" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#2A2C34" stop-opacity=".55"/>
+      <stop offset="100%" stop-color="#2A2C34" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="1920" height="1080" fill="url(#field)"/>
+  <ellipse cx="300" cy="960" rx="900" ry="640" fill="url(#ember)"/>
+  <ellipse cx="1680" cy="180" rx="820" ry="600" fill="url(#lift)"/>
+</svg>

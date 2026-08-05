@@ -1,0 +1,8 @@
+#!/bin/bash
+# desktop-harness - Control-Shift-G opens another Rook terminal.
+
+set -euo pipefail
+
+exec kitty \
+    --title "${DESKTOP_TITLE:-Rook}" \
+    -e bash -lc 'cd /workspace && rook-greeting && exec bash -li'

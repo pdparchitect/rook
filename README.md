@@ -150,16 +150,84 @@ Or clone and build with the provided `Makefile`:
 make build      # → ./rook
 ```
 
-## Authentication
+## Backends
 
-Rook talks to the ChatBotKit API, so it needs an API token supplied via
-`CHATBOTKIT_API_SECRET`.
+A run targets a **backend** - the provider Rook talks to. Three ship built in:
 
-1. **Create a ChatBotKit account** at [chatbotkit.com](https://chatbotkit.com)
-   or [console.cbk.ai](https://console.cbk.ai).
-2. **Create an API token** from the Tokens page
-   ([chatbotkit.com/tokens](https://chatbotkit.com/tokens)) and set it as
-   `CHATBOTKIT_API_SECRET` (export it, or put it in a `.env` file).
+| Backend      | Endpoint                     | Auth style   | Credential              |
+| ------------ | ---------------------------- | ------------ | ----------------------- |
+| `relay`      | `https://relay.cbk.ai`       | per-model    | provider key per model  |
+| `cbk`        | `https://api.cbk.ai`         | Bearer       | `CBK_API_SECRET`        |
+| `chatbotkit` | `https://api.chatbotkit.com` | Bearer       | `CHATBOTKIT_API_SECRET` |
+
+Rook defaults to **`relay`**. Pick another with `--backend` (or `default_backend`
+in config). The model is resolved against the chosen backend, so it must be one
+that backend serves.
+
+The two ChatBotKit backends authenticate with a Bearer token. The **relay is
+different**: it authenticates each model with *its own provider key*, carried
+inside the model string as `<model>/authorization=<key>` - because on the relay
+each model is a different provider (OpenAI, Mistral, …) with a different key. So
+relay auth is configured **per model**:
+
+```yaml
+default_backend: relay
+backends:
+  relay:
+    # authorization: $RELAY_API_KEY   # optional: one default key for all models
+    models:
+      gpt-4:
+        authorization: $OPENAI_API_KEY
+      mistral-large:
+        authorization: $MISTRAL_API_KEY
+```
+
+```bash
+export OPENAI_API_KEY="sk-..."
+rook --model gpt-4 "…"           # → sends model gpt-4/authorization=sk-... to the relay
+
+# A single default key for every relay model (composed the same way):
+export RELAY_API_KEY="sk-..."
+rook --model gpt-4 "…"
+
+# You can also inline the key yourself; Rook leaves it untouched:
+rook --model 'gpt-4/authorization=sk-...' "…"
+
+# The ChatBotKit backends just need their Bearer token:
+export CBK_API_SECRET="..."
+rook --backend cbk --model qwen-3.6-plus "…"
+```
+
+Rook composes the `authorization=` param onto the model automatically from the
+per-model (or backend-level) config; a key you inline into `--model` yourself is
+left as-is.
+
+## Configuration
+
+Configuration is layered: **built-in defaults < config file < `ROOK_*` env vars
+< CLI flags**. The config file is optional - env vars alone are enough, which
+keeps "download the binary and run with just a key" true.
+
+```bash
+mkdir -p ~/.config/rook
+cp configs/rook.example.yaml ~/.config/rook/config.yaml
+```
+
+The file lives at `~/.config/rook/config.yaml` (override with `$ROOK_CONFIG` or
+`--config`). Every scalar has a matching `ROOK_*` env var (`agent.model` →
+`ROOK_AGENT_MODEL`, `default_backend` → `ROOK_DEFAULT_BACKEND`). Backend
+credentials are read from each backend's own variable above; keep secrets in the
+environment, not in the file (the file may `$`-reference them). A `.env` in the
+working directory is still loaded as a convenience for populating those
+variables. See [configs/rook.example.yaml](configs/rook.example.yaml).
+
+Rook strips the resolved backend credential from the environment before the
+agent runs, so the commands it executes against a target cannot read it.
+
+To create ChatBotKit credentials: make an account at
+[chatbotkit.com](https://chatbotkit.com) or
+[console.cbk.ai](https://console.cbk.ai) and a token on the Tokens page
+([chatbotkit.com/tokens](https://chatbotkit.com/tokens)).
 
 ### Recommended: run under a sub-account
 
@@ -190,7 +258,7 @@ for the full guide.
 ## Usage
 
 ```bash
-export CHATBOTKIT_API_SECRET="your-api-key"
+export RELAY_API_KEY="your-provider-key"   # default "relay" backend
 
 # Audit a local codebase
 rook --scope "repo: ./server, no network access" \
@@ -207,14 +275,19 @@ Rook loads a `.env` file automatically if present (see `.env.example`).
 
 ### Flags
 
-| Flag               | Default         | Description                                   |
-| ------------------ | --------------- | --------------------------------------------- |
-| `--model`          | `qwen-3.6-plus` | Model the agent reasons with                  |
-| `--max-iterations` | `10000`         | Maximum agent iterations before a forced stop |
-| `--scope`          | -               | Authorization boundary (hosts, repos, paths)  |
-| `--scope-file`     | -               | Read the authorization scope from a file      |
-| `-v`, `--verbose`  | `false`         | Stream the agent's reasoning tokens to stdout |
-| `-V`, `--version`  | -               | Print version and exit                        |
+| Flag               | Default            | Description                                        |
+| ------------------ | ------------------ | -------------------------------------------------- |
+| `--backend`        | `relay`            | Backend to target: `relay`, `cbk`, or `chatbotkit` |
+| `--config`         | `~/.config/rook/config.yaml` | Path to the config file (or `$ROOK_CONFIG`) |
+| `--model`          | `qwen-3.6-plus`    | Model the agent reasons with (overrides config)    |
+| `--max-iterations` | `10000`            | Maximum agent iterations before a forced stop      |
+| `--scope`          | -                  | Authorization boundary (hosts, repos, paths)       |
+| `--scope-file`     | -                  | Read the authorization scope from a file           |
+| `-v`, `--verbose`  | `false`            | Stream the agent's reasoning tokens to stdout      |
+| `-V`, `--version`  | -                  | Print version and exit                             |
+
+Flags override `ROOK_*` environment variables, which override the config file,
+which overrides the built-in defaults.
 
 The agent's findings stream to **stderr**; with `--verbose`, reasoning tokens
 stream to **stdout**. The final report is delivered as the agent's response -

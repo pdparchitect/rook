@@ -1,0 +1,54 @@
+#!/bin/bash
+# rook-setup - save the backend key so `rook` can reach the API.
+#
+# Rook defaults to the CBK Relay backend, whose credential is RELAY_API_KEY (your
+# OpenAI/OpenRouter key). Launcher bakes the application manifest's environment
+# into the container and does not let a user set a per-agent variable, so the key
+# is entered here, once, and persisted to the ~/.config/rook volume;
+# /etc/profile.d/rook-env.sh exports it into every later login shell. Nothing is
+# echoed to the terminal.
+#
+# For the "cbk"/"chatbotkit" backends instead, pass the variable name as the
+# first argument: `rook-setup CBK_API_SECRET`.
+
+set -euo pipefail
+
+var="${1:-RELAY_API_KEY}"
+home="${HOME}/.config/rook"
+envfile="${home}/env"
+
+mkdir -p "${home}"
+chmod 0700 "${home}"
+
+case "${var}" in
+    RELAY_API_KEY)
+        printf 'Paste your RELAY_API_KEY (your OpenAI/OpenRouter key), then Enter.\n'
+        printf 'Rook reaches models through the CBK Relay at relay.cbk.ai.\n\n' ;;
+    *)
+        printf 'Paste your %s, then Enter.\n' "${var}"
+        printf 'Create a ChatBotKit token at https://chatbotkit.com/tokens\n\n' ;;
+esac
+printf '%s (input hidden): ' "${var}"
+read -rs secret
+printf '\n'
+
+secret="${secret#"${secret%%[![:space:]]*}"}"
+secret="${secret%"${secret##*[![:space:]]}"}"
+
+if [ -z "${secret}" ]; then
+    printf 'No key entered; nothing changed.\n' >&2
+    exit 1
+fi
+
+# Keep other saved keys; replace only this variable's line.
+umask 077
+tmp="$(mktemp)"
+if [ -f "${envfile}" ]; then
+    grep -v "^${var}=" "${envfile}" > "${tmp}" || true
+fi
+printf '%s=%s\n' "${var}" "${secret}" >> "${tmp}"
+mv "${tmp}" "${envfile}"
+chmod 0600 "${envfile}"
+
+printf '\nSaved %s to %s.\n' "${var}" "${envfile}"
+printf 'Open a new terminal (Ctrl-Shift-G) or run: source %s\n' "${envfile}"

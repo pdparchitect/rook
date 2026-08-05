@@ -1,0 +1,37 @@
+#!/bin/bash
+# rook-greeting - the banner printed into the welcome terminal.
+#
+# Rook is not an interactive agent: each run takes a task and an authorization
+# scope. So this desktop opens a shell rather than an agent, and the greeting is
+# how a researcher learns to drive it - including whether an API key is set yet.
+
+set -uo pipefail
+
+crimson='\033[38;2;222;59;75m'
+white='\033[38;2;245;246;248m'
+muted='\033[38;2;110;114;128m'
+reset='\033[0m'
+
+key_ready() {
+    [ -n "${RELAY_API_KEY:-}" ] && return 0
+    grep -q 'RELAY_API_KEY' "${HOME}/.config/rook/env" 2>/dev/null
+}
+
+printf '\n'
+printf "${crimson}  ▟█▙ Rook${reset} ${muted}— autonomous security research agent${reset}\n\n"
+
+if key_ready; then
+    printf "${white}  Ready.${reset} ${muted}Give it a task and an explicit scope:${reset}\n\n"
+else
+    printf "${crimson}  No key set.${reset} ${muted}Run${reset} ${white}rook-setup${reset} ${muted}once (saves RELAY_API_KEY), then reopen this terminal.${reset}\n\n"
+fi
+
+printf "${muted}    rook --scope \"repo: ./api, read-only, no network\" \\\\\n"
+printf "         \"Audit ./api for SQL injection, IDOR and auth bypass\"${reset}\n\n"
+
+printf "${muted}    rook --scope-file scope.txt \\\\\n"
+printf "         \"Test the link-preview endpoint on staging.example.com for SSRF\"${reset}\n\n"
+
+printf "${muted}  Authorized use only. Always pass an explicit --scope describing the${reset}\n"
+printf "${muted}  systems you are permitted to assess. The workspace is /workspace.${reset}\n"
+printf "${muted}  Ctrl-Shift-G opens another terminal. \`rook version\` for the build.${reset}\n\n"

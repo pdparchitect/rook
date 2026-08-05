@@ -12,7 +12,31 @@ permissions:
   contents: write
 
 jobs:
+  validate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate tag and changelog
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          VERSION="$(tr -d '[:space:]' < VERSION)"
+          if [[ "$GITHUB_REF_NAME" != "v${VERSION}" ]]; then
+            echo "Tag $GITHUB_REF_NAME does not match VERSION v${VERSION}" >&2
+            exit 1
+          fi
+
+          if ! grep -q "^## \\[$VERSION\\]" CHANGELOG.md; then
+            echo "CHANGELOG.md has no section for $VERSION" >&2
+            exit 1
+          fi
+
   release:
+    needs: validate
     runs-on: ubuntu-latest
 
     strategy:
