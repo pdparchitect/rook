@@ -1,6 +1,10 @@
-// Package agent wires Rook's autonomous security agent on top of the
-// ChatBotKit Go SDK. It loads the embedded skill library, registers the
-// default file and shell tools, and drives the agent loop until it exits.
+// Package agent wires Rook's autonomous security agent on top of the zot
+// engine. It loads the embedded skill library, registers the default file and
+// shell tools, and drives the agent loop until it exits.
+//
+// The engine runs in this process and talks straight to a model provider, so a
+// run needs nothing but a provider key - no hosted service sits between Rook
+// and the model.
 package agent
 
 import (
@@ -12,22 +16,30 @@ import (
 	"strings"
 	"time"
 
-	rook "github.com/chatbotkit/rook"
-	"github.com/chatbotkit/rook/internal/config"
+	rook "github.com/pdparchitect/rook"
+	"github.com/pdparchitect/rook/internal/config"
 
-	sdkagent "github.com/chatbotkit/go-sdk/agent"
-	"github.com/chatbotkit/go-sdk/sdk"
-	"github.com/chatbotkit/go-sdk/types"
+	"github.com/openzot/openzot/agent"
 )
+
+// defaultMaxSettles bounds how many times the engine nudges the agent to record
+// an outcome before surfacing the run as unsettled. Positive so settle mode is
+// on; the value is generous because a security run legitimately produces a long
+// final report before it calls a terminal tool.
+const defaultMaxSettles = 20
 
 // Config controls a single autonomous run.
 type Config struct {
-	// APISecret is the credential for the selected backend.
-	APISecret string
-	// BaseURL is the API endpoint for the selected backend. Empty uses the SDK
-	// default (the ChatBotKit API).
+	// Provider names the model provider to call: "openai", "anthropic", "zai"
+	// and so on, or "custom" with a BaseURL for anything else that speaks the
+	// OpenAI-compatible API.
+	Provider string
+	// APIKey is the provider credential.
+	APIKey string
+	// BaseURL overrides the provider's default endpoint. Required for a custom
+	// provider, ignored otherwise unless a gateway needs it.
 	BaseURL string
-	// Model is the model the agent reasons with (e.g. "gpt-4o").
+	// Model is the model the agent reasons with, as the provider names it.
 	Model string
 	// MaxIterations bounds how many tool-using turns the agent may take
 	// before it is forced to stop.
@@ -54,12 +66,12 @@ func Run(ctx context.Context, cfg Config) (int, error) {
 		return 1, fmt.Errorf("open embedded skills: %w", err)
 	}
 
-	skillsResult, err := sdkagent.LoadSkillsFromFS(subFS)
+	skillsResult, err := agent.LoadSkillsFromFS(subFS)
 	if err != nil {
 		return 1, fmt.Errorf("load embedded skills: %w", err)
 	}
 
-	skills := skillsResult.GetSkills()
+	skills := skillsResult.Skills
 
 	fmt.Fprintf(os.Stderr, "Loaded %d embedded skill(s):\n", len(skills))
 	for _, s := range skills {
@@ -77,30 +89,41 @@ func Run(ctx context.Context, cfg Config) (int, error) {
 
 	backstory := fmt.Sprintf(config.Backstory, scope)
 
-	client := sdk.New(sdk.Options{Secret: cfg.APISecret, BaseURL: cfg.BaseURL})
-
-	tools := sdkagent.DefaultTools()
-
-	skillsFeature := sdkagent.CreateSkillsFeature(skills)
-
-	messages := []sdkagent.Message{
-		{Type: "user", Text: cfg.Task},
+	// The model is a property of the client rather than of a run: it decides
+	// which endpoint and which tokenizer the engine uses, so it has to be known
+	// before the conversation starts.
+	client, err := agent.NewClient(agent.ClientOptions{
+		Provider: cfg.Provider,
+		Model:    cfg.Model,
+		APIKey:   cfg.APIKey,
+		BaseURL:  cfg.BaseURL,
+	})
+	if err != nil {
+		return 1, err
 	}
 
-	events, errs := sdkagent.ExecuteWithTools(ctx, client, sdkagent.ExecuteWithToolsOptions{
-		Model:         cfg.Model,
-		Messages:      messages,
+	tools := agent.DefaultTools()
+
+	// Embedded skills are served by a tool rather than read off disk, because
+	// Rook ships its skill library inside the binary - there is no path for the
+	// agent to read. The engine describes them in the backstory either way.
+	if skillTool := skillsResult.Tool(); skillTool != nil {
+		tools["skill"] = *skillTool
+	}
+
+	events, errs := agent.ExecuteWithTools(ctx, client, agent.ExecuteWithToolsOptions{
+		Messages:      []agent.Message{{Type: agent.TypeUser, Text: cfg.Task}},
 		Backstory:     backstory,
 		Tools:         tools,
+		Skills:        skills,
 		MaxIterations: cfg.MaxIterations,
-		Extensions: &types.ConversationCompleteRequestExtensions{
-			Features: []types.CompleteFeature{
-				{
-					Name:    skillsFeature["name"].(string),
-					Options: skillsFeature["options"].(map[string]interface{}),
-				},
-			},
-		},
+
+		// Settle mode: a run ends only when the agent records an outcome, never
+		// because its prose happened to sound conclusive. Rook is unattended by
+		// design - nobody is watching to judge whether "I have finished the
+		// audit" actually means finished - so an unambiguous ending matters more
+		// here than almost anywhere. A positive value enables it.
+		MaxSettles: defaultMaxSettles,
 	})
 
 	// Every run writes artifacts - a live status snapshot and an append-only
@@ -130,28 +153,28 @@ func Run(ctx context.Context, cfg Config) (int, error) {
 
 	for event := range events {
 		switch e := event.(type) {
-		case sdkagent.TokenAgentEvent:
+		case agent.TokenAgentEvent:
 			if cfg.Verbose {
 				fmt.Print(e.Token)
 			}
-		case sdkagent.IterationEvent:
+		case agent.IterationEvent:
 			fmt.Fprintf(os.Stderr, "\n--- Iteration %d ---\n", e.Iteration)
 			status.update(func(s *Status) { s.Iteration = e.Iteration })
 			logf.log("iteration", map[string]interface{}{"iteration": e.Iteration})
-		case sdkagent.ToolCallStartEvent:
+		case agent.ToolCallStartEvent:
 			fmt.Fprintf(os.Stderr, "\n[%s] %v\n", e.Name, e.Args)
 			status.update(func(s *Status) {
 				s.Tool = e.Name
 				s.Action = summarizeArgs(e.Args)
 			})
 			logf.log("tool_start", map[string]interface{}{"tool": e.Name, "args": e.Args})
-		case sdkagent.ToolCallEndEvent:
+		case agent.ToolCallEndEvent:
 			fmt.Fprintf(os.Stderr, "[%s] → %v\n", e.Name, truncate(e.Result))
 			logf.log("tool_end", map[string]interface{}{"tool": e.Name})
-		case sdkagent.ToolCallErrorEvent:
+		case agent.ToolCallErrorEvent:
 			fmt.Fprintf(os.Stderr, "[%s] error: %s\n", e.Name, e.Error)
 			logf.log("tool_error", map[string]interface{}{"tool": e.Name, "error": e.Error})
-		case sdkagent.AgentExitEvent:
+		case agent.AgentExitEvent:
 			fmt.Fprintf(os.Stderr, "\n\n=== Agent exited with code %d ===\n", e.Code)
 			if e.Message != "" {
 				fmt.Fprintf(os.Stderr, "Message: %s\n", e.Message)

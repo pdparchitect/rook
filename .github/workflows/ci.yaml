@@ -40,6 +40,12 @@ jobs:
       - name: Vet
         run: go vet ./...
 
+      # The developer build is gated behind a build tag, so nothing else in this
+      # workflow compiles it - a break there would surface only when someone ran
+      # `make dev` locally.
+      - name: Vet (developer build)
+        run: go vet -tags dev ./...
+
       - name: Vulnerability check
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@latest
@@ -50,6 +56,9 @@ jobs:
 
       - name: Build
         run: CGO_ENABLED=0 go build -trimpath ./cmd/rook
+
+      - name: Build (developer build)
+        run: CGO_ENABLED=0 go build -trimpath -tags dev ./cmd/rook
 
   cross-compile:
     name: Build (${{ matrix.goos }}/${{ matrix.goarch }})

@@ -4,9 +4,10 @@
 
 **Rook** is an AI bug-hunting harness for vulnerability research, bug hunting and
 source-code auditing. It is a single Go executable that drives a model through
-the whole hunt, built on the [ChatBotKit Go SDK](https://github.com/chatbotkit/go-sdk),
-with a library of security skills embedded directly into the binary - no external
-files, no setup beyond a provider key.
+the whole hunt: the autonomous engine ([zot](https://github.com/openzot/openzot))
+runs inside the binary and talks straight to a model provider, with a library of
+security skills embedded directly into the binary - no external files, no hosted
+service, no setup beyond a provider key.
 
 Give Rook a target and a scope, and it works through the problem the way a
 researcher would.
@@ -67,14 +68,13 @@ engagement. Rook is built for exactly those:
   changes. Nothing to match against the host's libraries or OS version.
 - **Nothing to fetch at runtime.** Because the skills are baked in, Rook works
   in locked-down or offline environments where you can't `pip install` or pull
-  containers. Its only external dependency is the ChatBotKit API (and your key).
-- **The hard parts run as a service.** This is the real reason Rook feels so
-  light. Model orchestration, the reasoning and tool-execution loop, skill
-  handling, scaling and reliability all run as a managed service on ChatBotKit,
-  built and maintained by a dedicated team of engineers who do only this. The
-  binary doesn't reimplement any of that complexity; it embeds the skills and
-  streams the conversation. So the harness stays small and focused on the hunt,
-  and you inherit backend improvements without shipping a new build.
+  containers. Its only external dependency is the model provider you point it at
+  (and your key) - or nothing at all off the machine, if you run a local model.
+- **The engine runs in the binary.** The reasoning and tool-execution loop,
+  thread management, compaction and loop detection all run in-process, in the
+  same statically-linked file as the skills. Nothing about a run depends on a
+  service staying up, and a run is reproducible offline. You point Rook at
+  whichever provider you already pay for.
 - **Trivial to distribute and audit.** A single artifact with a published
   checksum is easy to vet, copy onto a target box, version-pin, and remove
   cleanly afterwards - important when you're operating inside someone else's
@@ -106,7 +106,7 @@ harness you can carry anywhere as **one file** and run with **zero setup**.
 ### From a release (recommended)
 
 Prebuilt, self-contained binaries are published for every release on the
-[releases page](https://github.com/chatbotkit/rook/releases), for Linux, macOS
+[releases page](https://github.com/pdparchitect/rook/releases), for Linux, macOS
 and Windows on both amd64 and arm64. Each archive contains a single `rook`
 binary (plus README and LICENSE), and a `checksums.txt` is published alongside.
 
@@ -117,7 +117,7 @@ download, (optionally) verify, extract and put `rook` on your `PATH`:
 VERSION=v0.1.0
 OS=linux       # linux | darwin | windows
 ARCH=amd64     # amd64 | arm64
-BASE="https://github.com/chatbotkit/rook/releases/download/${VERSION}"
+BASE="https://github.com/pdparchitect/rook/releases/download/${VERSION}"
 
 # download the archive and checksums
 curl -sSLO "${BASE}/rook-${VERSION}-${OS}-${ARCH}.tar.gz"
@@ -139,7 +139,7 @@ On Windows, download `rook-<version>-windows-amd64.tar.gz`, extract it, and add
 ### From source
 
 ```bash
-go install github.com/chatbotkit/rook/cmd/rook@latest
+go install github.com/pdparchitect/rook/cmd/rook@latest
 ```
 
 Or clone and build with the provided `Makefile`:
@@ -150,68 +150,69 @@ make build      # → ./rook
 
 ## Backends
 
-A run targets a **backend** - the provider Rook talks to. Rook defaults to
-**`relay`**; the ChatBotKit backends are an alternative for account holders. Pick
-one with `--backend` or `default_backend` in config.
+A run targets a **backend** - the provider Rook talks to. Rook speaks to each one
+directly over the OpenAI-compatible API; there is no gateway and no account in
+between, so all you need is a provider key. Pick a backend with `--backend`, or
+set `default_backend` in config.
 
-| Backend      | Endpoint                     | Auth style | Credential                   |
-| ------------ | ---------------------------- | ---------- | ---------------------------- |
-| `relay`      | `https://relay.cbk.ai`       | per-model  | your provider key, per model |
-| `cbk`        | `https://api.cbk.ai`         | Bearer     | `CBK_API_SECRET`             |
-| `chatbotkit` | `https://api.chatbotkit.com` | Bearer     | `CHATBOTKIT_API_SECRET`      |
+| Backend      | Endpoint                         | Credential from      |
+| ------------ | -------------------------------- | -------------------- |
+| `zai`        | `https://api.z.ai/api/paas/v4`   | `ZAI_API_KEY`        |
+| `openai`     | `https://api.openai.com/v1`      | `OPENAI_API_KEY`     |
+| `anthropic`  | `https://api.anthropic.com/v1`   | `ANTHROPIC_API_KEY`  |
+| `groq`       | `https://api.groq.com/openai/v1` | `GROQ_API_KEY`       |
+| `mistral`    | `https://api.mistral.ai/v1`      | `MISTRAL_API_KEY`    |
+| `deepseek`   | `https://api.deepseek.com/v1`    | `DEEPSEEK_API_KEY`   |
+| `openrouter` | `https://openrouter.ai/api/v1`   | `OPENROUTER_API_KEY` |
+| `together`   | `https://api.together.xyz/v1`    | `TOGETHER_API_KEY`   |
+| `cerebras`   | `https://api.cerebras.ai/v1`     | `CEREBRAS_API_KEY`   |
+| `xai`        | `https://api.x.ai/v1`            | `XAI_API_KEY`        |
+| `moonshot`   | `https://api.moonshot.cn/v1`     | `MOONSHOT_API_KEY`   |
+| `qwen`       | DashScope compatible mode        | `DASHSCOPE_API_KEY`  |
+| `ollama`     | `http://localhost:11434/v1`      | none (local)         |
 
-Model names come from the ChatBotKit catalogue and are resolved against the
-chosen backend; open models like `glm-5.2`, `kimi-k3` and `deepseek-v4-flash`
-suit bug-hunting work.
+Rook defaults to **`zai`** running **`glm-5.2`** - a strong open model for
+bug-hunting work: large context for reading codebases, and permissive for
+offensive tasks. The model must be one the chosen backend serves.
 
-### `relay` — the default (bring your own key)
-
-The CBK Relay is a free proxy, and **there is no relay API key.** It
-authenticates each model with _your own provider key_, carried inside the model
-string as `<model>/authorization=<key>` - because on the relay each model is a
-different provider (Z.AI, Moonshot, DeepSeek, …) with its own key. So you set the
-key **per model** in config (paste it literally, or reference an env var):
-
-```yaml
-default_backend: relay
-backends:
-  relay:
-    # authorization: $ZAI_API_KEY   # optional: one default key for all relay models
-    models:
-      glm-5.2:
-        authorization: $ZAI_API_KEY # or paste the key literally
-      kimi-k3:
-        authorization: $MOONSHOT_API_KEY
-      deepseek-v4-flash:
-        authorization: $DEEPSEEK_API_KEY
-```
+The common case is one exported variable and nothing else:
 
 ```bash
 export ZAI_API_KEY="sk-..."
-rook --model glm-5.2 "…"                          # sends glm-5.2/authorization=sk-... to the relay
-rook --model 'glm-5.2/authorization=sk-...' "…"   # or inline it; Rook leaves it as-is
+rook --scope "repo: ./server" "Audit the HTTP handlers for injection bugs"
 ```
 
-Rook composes the `authorization=` param onto the model automatically from the
-per-model (or backend-level) config; a key you inline into `--model` is left as-is.
-
-### `cbk` / `chatbotkit` — ChatBotKit account backends
-
-If you have a ChatBotKit account, target it directly with a Bearer token instead
-of bringing per-model keys. `cbk` and `chatbotkit` are the same platform on its
-two hosts and take the same credential value under their own variable:
+Switch provider with a flag:
 
 ```bash
-export CBK_API_SECRET="..."          # or CHATBOTKIT_API_SECRET for --backend chatbotkit
-rook --backend cbk --model glm-5.2 "…"
+export OPENAI_API_KEY="sk-..."
+rook --backend openai --model gpt-5 "…"
 ```
 
-Provide the token via that env var, or as `api_secret` under the backend in
-config. Create one on the Tokens page
-([chatbotkit.com/tokens](https://chatbotkit.com/tokens)); an account is at
-[chatbotkit.com](https://chatbotkit.com) or [console.cbk.ai](https://console.cbk.ai).
+For sensitive material that must not leave the machine, a local model is the
+right choice - and the one backend that never sends data off-host:
 
-## Configuration
+```bash
+rook --backend ollama --model llama-4 "…"
+```
+
+### Any other provider
+
+Anything that speaks the OpenAI-compatible API works. Name a backend, give it a
+base URL and a key:
+
+```yaml
+default_backend: mygateway
+backends:
+  mygateway:
+    provider: custom
+    base_url: https://gateway.internal.example.com/v1
+    api_key: '$GATEWAY_KEY'
+```
+
+A key can be written literally or as a `$VAR` reference so no secret is on disk.
+
+## Configuration## Configuration
 
 Configuration is layered: **built-in defaults < config file < `ROOK_*` env vars
 < CLI flags**. The config file is optional - env vars alone are enough.
@@ -223,40 +224,15 @@ rook config path   # print the config file location
 
 The file lives at `~/.config/rook/config.yaml` (override with `$ROOK_CONFIG` or
 `--config`). Every scalar has a matching `ROOK_*` env var (`agent.model` →
-`ROOK_AGENT_MODEL`, `default_backend` → `ROOK_DEFAULT_BACKEND`). The Bearer
-backends' credentials can come from their own env var or `api_secret` in the
-file; the relay's per-model provider key is set in the file (or `$`-referenced
-from the environment). A `.env` in the working directory is also loaded as a
-convenience. See [configs/rook.example.yaml](configs/rook.example.yaml).
+`ROOK_AGENT_MODEL`, `default_backend` → `ROOK_DEFAULT_BACKEND`). A backend's key
+comes from its provider's conventional variable or `api_key` in the file, which
+may be a literal or a `$VAR` reference. A developer build also reads a `.env`
+from the working directory - a released one does not (see
+[Development](#development)). See
+[configs/rook.example.yaml](configs/rook.example.yaml).
 
 Rook strips the resolved backend credential from the environment before the
 agent runs, so the commands it executes against a target cannot read it.
-
-### Recommended: run under a sub-account
-
-For better **isolation, cost control and observability**, we suggest running
-Rook under a dedicated **sub-account** rather than your main account - each
-engagement, tool or user then gets its own usage, billing and logs. For a
-sub-account that is fully dedicated to Rook, a **standard token is enough**.
-
-### Recommended: use a scoped token
-
-We also recommend a **scoped token**, which limits the token to specific
-ChatBotKit API routes (principle of least privilege), so a leaked key can't
-touch the rest of your account. This matters less for a fully dedicated
-sub-account, but it is good practice everywhere.
-
-Rook runs **statelessly**, so it only needs the stateless completion route.
-When creating the token, set its `allowedRoutes` to:
-
-```yaml
-allowedRoutes:
-  - conversation/complete
-```
-
-Route patterns omit the `/v1/` prefix. See
-[How to Create Scoped API Tokens](https://chatbotkit.com/tutorials/how-to-create-scoped-api-tokens-for-restricted-access)
-for the full guide.
 
 ## Files & directories
 
@@ -284,8 +260,7 @@ recent active run.
 ## Usage
 
 ```bash
-# default "relay" backend: set your per-model provider key in the config file
-# (see Backends above); or use a ChatBotKit backend: export CBK_API_SECRET=...
+export ZAI_API_KEY="sk-..."       # or --backend openai with OPENAI_API_KEY, etc.
 
 # Audit a local codebase
 rook --scope "repo: ./server, no network access" \
@@ -298,13 +273,14 @@ rook -v --scope-file scope.txt "Find SSRF in the URL-fetching service"
 rook version
 ```
 
-Rook loads a `.env` file automatically if present (see `.env.example`).
+A developer build loads a `.env` from the working directory; a released binary
+does not (see [Development](#development)).
 
 ### Flags
 
 | Flag               | Default                      | Description                                        |
 | ------------------ | ---------------------------- | -------------------------------------------------- |
-| `--backend`        | `relay`                      | Backend to target: `relay`, `cbk`, or `chatbotkit` |
+| `--backend`        | `zai`                        | Backend to target: any provider, or one named in config |
 | `--config`         | `~/.config/rook/config.yaml` | Path to the config file (or `$ROOK_CONFIG`)        |
 | `--model`          | `glm-5.2`                    | Model the agent reasons with (overrides config)    |
 | `--max-iterations` | `10000`                      | Maximum agent iterations before a forced stop      |
@@ -382,38 +358,43 @@ The default model and the agent's system prompt (backstory) live in one place -
 without touching the CLI or the agent loop.
 
 At startup Rook loads the embedded skills with `agent.LoadSkillsFromFS`,
-registers `agent.DefaultTools()`, builds a security-focused backstory that
-pins the agent to your authorized scope, and runs `agent.ExecuteWithTools`
-until the agent calls `exit`.
+registers `agent.DefaultTools()` plus a `skill` tool serving the embedded
+library, builds a security-focused backstory that pins the agent to your
+authorized scope, and runs `agent.ExecuteWithTools` until the agent records an
+outcome by calling `_success` or `_failure`.
 
 ## Development
 
-The committed `go.mod` pins a published version of the Go SDK, so the
-standalone repository builds from a clean clone with no extra steps:
+The engine is the published [zot](https://github.com/openzot/openzot) module,
+pinned in `go.mod`, so the repository builds from a clean clone with no extra
+steps:
 
 ```bash
-git clone https://github.com/chatbotkit/rook
+git clone https://github.com/pdparchitect/rook
 cd rook
-go build ./...        # or: make build
+make            # lists the targets
+make build      # build ./rook
 ```
+
+`make` on its own prints the targets rather than assuming one, because Rook has
+two build variants:
 
 ```bash
-make build    # build ./rook
-make test     # run tests
-make vet      # go vet
-make dist     # cross-platform release archives under dist/
+make build    # release binary
+make dev       # developer binary - reads a .env from the working directory
+make test      # run tests
+make race      # tests under the race detector
+make vet       # go vet over both build variants
+make dist      # cross-platform release archives under dist/
 ```
 
-### Developing against a local go-sdk
-
-To build against a local checkout of the Go SDK instead of the published
-module, place it at `../go-sdk` (or anywhere) and create a Go workspace:
-
-```bash
-make workspace        # writes a gitignored go.work
-```
-
-`go.work` is **gitignored**, so it only affects your local builds. See
+**Release vs developer builds.** A released binary does **not** read a `.env`
+from its working directory; a developer build does. Rook runs shell commands
+against targets with a provider key in the process, so a released binary must
+not take credentials from whatever directory it was pointed at - a stray
+committed `.env` in the code under review would otherwise reach the process
+about to run commands against it. The switch is a build tag (`-tags dev`) that
+defaults to off; `rook --version` prints which kind you have. See
 [RELEASES.md](RELEASES.md) for the release flow.
 
 ## Credits

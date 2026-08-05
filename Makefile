@@ -1,25 +1,54 @@
-VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
-LDFLAGS  = -s -w -X github.com/chatbotkit/rook/internal/version.Version=$(VERSION)
+SHELL := /bin/bash
+.DEFAULT_GOAL := help
 
-CMD      = rook
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+LDFLAGS  = -s -w -X github.com/pdparchitect/rook/internal/version.Version=$(VERSION)
+
+CMD       = rook
 PLATFORMS = linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64
 
-.PHONY: all build run test vet fmt lint clean dist workspace
+GOOS   ?= $(shell go env GOHOSTOS)
+GOARCH ?= $(shell go env GOHOSTARCH)
 
-all: build
+.PHONY: help build dev run test race vet fmt lint clean dist cross
 
-# Create the gitignored go.work so local builds resolve the go-sdk from a local
-# checkout instead of the published module pinned in go.mod. Override the path
-# with: make workspace GOSDK=../path/to/go-sdk
-GOSDK ?= ../go-sdk
-
-workspace:
-	go work init . $(GOSDK)
-	@echo "go.work created - local builds now use $(GOSDK)"
+# Listing the targets rather than assuming one: rook has two build variants that
+# differ in what the binary may read from disk, and picking the wrong one
+# silently is exactly the confusion this avoids.
+help:
+	@echo "rook - an AI bug-hunting harness"
+	@echo
+	@echo "  make build      Build ./rook for release ($(GOOS)/$(GOARCH))"
+	@echo "  make dev        Build ./rook for development - see below"
+	@echo "  make test       Run the test suite"
+	@echo "  make race       Run the test suite under the race detector"
+	@echo "  make vet        Run go vet over both build variants"
+	@echo "  make fmt        Format the tree"
+	@echo "  make lint       Alias for vet"
+	@echo "  make cross      Cross-compile: make cross GOOS=darwin GOARCH=arm64"
+	@echo "  make dist       Build release archives for every platform under dist/"
+	@echo "  make clean      Remove built binaries and dist/"
+	@echo
+	@echo "build vs dev: a release binary does NOT read a .env from its working"
+	@echo "  directory; a developer build does. rook runs shell commands against"
+	@echo "  targets with a provider key in the process, so a released binary must"
+	@echo "  not take credentials from whatever directory it was pointed at. Both"
+	@echo "  write to ./rook - run './rook --version' to see which one you have."
+	@echo
+	@echo "Overrides: VERSION=$(VERSION)"
+	@echo "           GOOS=$(GOOS) GOARCH=$(GOARCH)"
 
 build:
-	@echo "Building $(CMD) ($(VERSION))..."
+	@echo "Building $(CMD) ($(VERSION), release)..."
 	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o $(CMD) ./cmd/$(CMD)
+
+# A developer build. The only difference is that it reads a .env from the
+# working directory, which a released binary must never do - pointing rook at a
+# target's checkout would otherwise be enough to load whatever credentials are
+# lying around in it.
+dev:
+	@echo "Building $(CMD) ($(VERSION), dev - reads .env)..."
+	CGO_ENABLED=0 go build -trimpath -tags dev -ldflags "$(LDFLAGS)" -o $(CMD) ./cmd/$(CMD)
 
 run: build
 	./$(CMD) $(ARGS)
@@ -27,11 +56,17 @@ run: build
 fmt:
 	go fmt ./...
 
-vet:
-	go vet ./...
-
 test:
 	go test ./... -count=1
+
+race:
+	go test -race ./... -count=1
+
+# Both variants, because a build tag can break a compile the default never
+# reaches - and the developer build is the one no pipeline exercises.
+vet:
+	go vet ./...
+	go vet -tags dev ./...
 
 lint: vet
 	@echo "lint ok"

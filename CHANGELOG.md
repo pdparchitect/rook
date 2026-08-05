@@ -8,6 +8,14 @@ All notable changes to Rook, following [Keep a Changelog](https://keepachangelog
 
 - Run artifacts: every run now writes its own `status.json` (live state: model, scope, iteration, current tool, timestamps, exit) and `events.jsonl` (an append-only event log) into a per-run directory `<run_dir>/<runid>/`. This is telemetry, separate from the workspace the agent works in, and is what the desktop status widget reads. It is always on, multi-instance safe (`<runid>` is `<timestamp>-<pid>`), and the base directory is `$XDG_STATE_HOME/rook/runs` by default (override with `--run-dir`, `run_dir` in config, or `$ROOK_RUN_DIR`).
 
+### Changed
+
+- **The engine is now [zot](https://github.com/openzot/openzot), running in-process.** Rook drops its hosted agent SDK and no longer talks to a hosted service: the agentic loop, thread management, compaction and loop detection all run inside the binary, straight against a model provider. A run is reproducible offline and depends on nothing staying up but the provider you point it at.
+- **Native backends.** Rook targets a provider directly - `zai` (default, running `glm-5.2`), `openai`, `anthropic`, `groq`, `mistral`, `deepseek`, `openrouter`, `together`, `cerebras`, `xai`, `moonshot`, `qwen`, and a local `ollama` - each reading its provider's conventional key. A backend key is written as `api_key`, literal or a `$VAR` reference. A local Ollama is the recommended choice for material that must not leave the machine.
+- **Breaking (security):** a released binary no longer reads a `.env` from the working directory. Rook runs shell commands against targets with a provider key in the process, so taking credentials from whatever directory it was pointed at is a liability - a stray committed `.env` in the code under review would otherwise reach the process about to run commands against it. `make dev` (or `go build -tags dev`) still reads it, for local development; the switch is a build tag that defaults to off, and `rook --version` prints which kind you have.
+- **Settle mode.** A run now ends only when the agent records an outcome - `_success` with a summary, or `_failure` with a reason - never because its prose sounded conclusive. An unattended security run needs an unambiguous ending.
+- `make` prints the available targets instead of assuming `build`, and `make vet` covers both build variants. The desktop image and its Makefile pass provider keys through to a containerised run.
+
 ## [0.3.0] - 2026-08-05
 
 ### Features

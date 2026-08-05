@@ -5,24 +5,20 @@ This document describes how to build, version, and release Rook binaries.
 ## Overview
 
 Rook uses **Git tags** to trigger automated releases. When a tag matching `v*`
-is pushed to the `chatbotkit/rook` repository, a GitHub Actions workflow builds
+is pushed to the `pdparchitect/rook` repository, a GitHub Actions workflow builds
 multi-platform binaries and publishes them as a GitHub Release.
 
-### go-sdk resolution
+### Engine dependency
 
-The committed `go.mod` pins a **tagged release** of the Go SDK (e.g.
-`github.com/chatbotkit/go-sdk v0.1.0`), so every build - clean clone, CI,
-release, and `go install` - uses exactly that version. Builds are reproducible;
-no floating fetch step is involved.
+The committed `go.mod` pins a **tagged release** of the engine,
+`github.com/openzot/openzot` (zot), so every build - clean clone, CI, release,
+and `go install` - uses exactly that version. Builds are reproducible; no
+floating fetch step is involved.
 
-For development against a local checkout of the SDK, a **gitignored `go.work`**
-(created via `make workspace`) overrides the pinned module with the local copy.
-Because it is gitignored, it only affects local builds.
-
-To move to a newer SDK, bump the pin explicitly and commit the result:
+To move to a newer engine, bump the pin explicitly and commit the result:
 
 ```bash
-go get github.com/chatbotkit/go-sdk@v0.2.0   # run with go.work inactive
+go get github.com/openzot/openzot@vX.Y.Z
 go mod tidy
 ```
 
@@ -48,7 +44,7 @@ Use semantic versioning: `vMAJOR.MINOR.PATCH` (with the `v` prefix).
 
 The [release workflow](.github/workflows/release.yaml) runs automatically and:
 
-1. Resolves the latest published go-sdk.
+1. Resolves the pinned engine module.
 2. Builds the `rook` binary for each target platform.
 3. Packages each into a `.tar.gz` archive (with README and LICENSE).
 4. Generates SHA-256 checksums.

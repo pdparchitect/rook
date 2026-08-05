@@ -28,10 +28,13 @@ VOLUME_PREFIX ?= rook-desktop
 GPU_DEVICE := $(shell for node in /dev/dri/renderD*; do \
 	[ -e "$$node" ] && echo "--device=$$node"; done)
 
-# The ChatBotKit backends read a Bearer token from the environment; pass any set
-# on the host straight through. The relay's provider key is not an env var - it
-# is saved into the config via `rook config` inside the session.
-KEY_ENV := $(foreach v,CBK_API_SECRET CHATBOTKIT_API_SECRET,\
+# Each backend reads its provider's conventional key from the environment; pass
+# through any set on the host so a run inside the session needs no re-entry. A
+# key can also be saved into the config via `rook config` inside the session.
+PROVIDER_ENVS := ZAI_API_KEY OPENAI_API_KEY ANTHROPIC_API_KEY GROQ_API_KEY \
+	MISTRAL_API_KEY DEEPSEEK_API_KEY OPENROUTER_API_KEY TOGETHER_API_KEY \
+	CEREBRAS_API_KEY XAI_API_KEY MOONSHOT_API_KEY DASHSCOPE_API_KEY
+KEY_ENV := $(foreach v,$(PROVIDER_ENVS),\
 	$(if $(strip $($(v))),--env "$(v)=$($(v))",))
 
 .PHONY: help check build run recreate up test smoke stop logs vnc-log status url
@@ -55,7 +58,7 @@ help:
 	@echo "Overrides: PORT=7000 PREVIEW_PORT=7001"
 	@echo "           PLATFORM=linux/arm64 (default: $(PLATFORM))"
 	@echo "           DESKTOP_IMAGE=$(DESKTOP_IMAGE)"
-	@echo "           CBK_API_SECRET=... (passed through; for --backend cbk)"
+	@echo "           ZAI_API_KEY=... etc. (any provider key on the host is passed through)"
 
 check:
 	bash tests/test-image.sh

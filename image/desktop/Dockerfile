@@ -3,10 +3,11 @@
 # Rook on the Launcher desktop base.
 #
 # Rook is a single self-contained Go binary: an autonomous security agent for
-# vulnerability research, bug hunting and source-code auditing, built on the
-# ChatBotKit API. It is not an interactive TUI - each run takes a task and an
-# authorization scope - so the product surface is a persistent terminal in
-# /workspace where the researcher drives `rook`, not an agent opened on start.
+# vulnerability research, bug hunting and source-code auditing. The agentic
+# engine runs in the binary and talks straight to a model provider. It is not an
+# interactive TUI - each run takes a task and an authorization scope - so the
+# product surface is a persistent terminal in /workspace where the researcher
+# drives `rook`, not an agent opened on start.
 #
 # Build from the repository root so the compile stage sees the Go module:
 #
@@ -24,7 +25,7 @@ ARG DESKTOP_IMAGE=ghcr.io/pdparchitect/launcher-image-base-desktop:latest
 # --- build stage: compile rook from source ---------------------------------
 # Pinned to the build platform and cross-compiled with GOOS/GOARCH, so a
 # multi-arch build never pays for QEMU on the Go compile.
-FROM --platform=${BUILDPLATFORM} golang:1.23-bookworm AS build
+FROM --platform=${BUILDPLATFORM} golang:1.26.5-bookworm AS build
 
 WORKDIR /src
 
@@ -41,7 +42,7 @@ ARG TARGETOS
 ARG TARGETARCH
 RUN CGO_ENABLED=0 GOOS="${TARGETOS}" GOARCH="${TARGETARCH}" go build \
         -trimpath \
-        -ldflags "-s -w -X github.com/chatbotkit/rook/internal/version.Version=$(cat VERSION)" \
+        -ldflags "-s -w -X github.com/pdparchitect/rook/internal/version.Version=$(cat VERSION)" \
         -o /out/rook ./cmd/rook
 
 # --- product stage: rook on the desktop substrate --------------------------
@@ -53,11 +54,11 @@ USER root
 COPY --from=build /out/rook /usr/local/bin/rook
 RUN chmod 0755 /usr/local/bin/rook && rook version
 
-# Rook is stateless - it needs only the API and a key. What is worth persisting
-# is its config: ~/.config/rook/config.yaml, where `rook config` stores the relay
-# provider key (so a researcher does not re-enter it after every container
-# replacement). rook reads it directly; it lives under the XDG config dir, kept
-# out of the workspace files view.
+# Rook is stateless - it needs only a provider endpoint and a key. What is worth
+# persisting is its config: ~/.config/rook/config.yaml, where `rook config`
+# stores the provider key (so a researcher does not re-enter it after every
+# container replacement). rook reads it directly; it lives under the XDG config
+# dir, kept out of the workspace files view.
 RUN mkdir -p /home/agent/.config/rook && \
     chmod 0700 /home/agent/.config/rook && \
     chown -R agent:agent /home/agent
@@ -87,7 +88,7 @@ ENV DESKTOP_TITLE="Rook" \
 
 LABEL org.opencontainers.image.title="Rook" \
     org.opencontainers.image.description="Rook autonomous security agent in a Launcher-managed browser desktop" \
-    org.opencontainers.image.source="https://github.com/chatbotkit/rook"
+    org.opencontainers.image.source="https://github.com/pdparchitect/rook"
 
 VOLUME ["/workspace", "/home/agent/.config/rook"]
 
