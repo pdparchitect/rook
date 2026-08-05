@@ -4,7 +4,7 @@
   "slug": "rook",
   "name": "Rook",
   "publisher": "ChatBotKit",
-  "description": "A persistent browser desktop for Rook, an autonomous security agent for vulnerability research, bug hunting and source-code auditing. Drive it from a terminal in an isolated workspace it can only reach with your explicit scope.",
+  "description": "A persistent browser desktop for Rook, an AI bug-hunting harness for vulnerability research, bug hunting and source-code auditing. Drive it from a terminal in an isolated workspace with your explicit scope.",
   "tags": ["SECURITY", "TERMINAL", "AUTOMATION"],
   "media": {
     "icon": "icon.svg",

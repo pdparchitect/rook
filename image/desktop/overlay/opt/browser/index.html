@@ -16,7 +16,9 @@
         --crimson: #de3b4b;
       }
 
-      * { box-sizing: border-box; }
+      * {
+        box-sizing: border-box;
+      }
 
       body {
         margin: 0;
@@ -25,9 +27,17 @@
         place-items: center;
         padding: 40px;
         color: var(--soft);
-        background:
-          radial-gradient(60% 60% at 12% 96%, rgba(222, 59, 75, 0.28), transparent 60%),
-          radial-gradient(58% 56% at 92% 6%, rgba(42, 44, 52, 0.6), transparent 62%),
+        font-family: 'DejaVu Sans Mono', ui-monospace, monospace;
+        background: radial-gradient(
+            60% 60% at 12% 96%,
+            rgba(222, 59, 75, 0.28),
+            transparent 60%
+          ),
+          radial-gradient(
+            58% 56% at 92% 6%,
+            rgba(42, 44, 52, 0.6),
+            transparent 62%
+          ),
           #0e0f13;
       }
 
@@ -45,13 +55,17 @@
         gap: 16px;
       }
 
-      .wordmark svg { width: 34px; height: 34px; flex: none; }
+      .wordmark svg {
+        width: 34px;
+        height: 34px;
+        flex: none;
+      }
 
       h1 {
         margin: 0;
         font-size: clamp(30px, 5vw, 44px);
-        font-weight: 600;
-        letter-spacing: -0.015em;
+        font-weight: 700;
+        letter-spacing: 0;
         color: var(--white);
       }
 
@@ -62,7 +76,9 @@
         color: var(--muted);
       }
 
-      .warn { color: var(--crimson); }
+      .warn {
+        color: var(--crimson);
+      }
 
       hr {
         margin: 0 0 24px;
@@ -75,7 +91,6 @@
         display: grid;
         grid-template-columns: max-content 1fr;
         gap: 12px 28px;
-        font-family: 'DejaVu Sans Mono', monospace;
         font-size: 13px;
       }
 
@@ -87,9 +102,15 @@
         padding-top: 2px;
       }
 
-      dd { margin: 0; color: var(--soft); }
+      dd {
+        margin: 0;
+        color: var(--soft);
+      }
 
-      dd b { color: var(--crimson); font-weight: 400; }
+      dd b {
+        color: var(--crimson);
+        font-weight: 400;
+      }
     </style>
   </head>
   <body>
@@ -111,8 +132,10 @@
       </div>
 
       <p class="standfirst">
-        An autonomous security agent that only reaches the workspace you gave it.
-        <span class="warn">Authorized use only — always pass an explicit --scope.</span>
+        AI bug-hunting harness.
+        <span class="warn"
+          >Authorized use only — always pass an explicit --scope.</span
+        >
       </p>
 
       <hr />
@@ -121,7 +144,7 @@
         <dt>Run</dt>
         <dd>a terminal is open; drive <b>rook</b> from there</dd>
         <dt>API key</dt>
-        <dd>run <b>rook-setup</b> once to save your ChatBotKit secret</dd>
+        <dd>run <b>rook config</b> to set your backend, model and key</dd>
         <dt>Terminal</dt>
         <dd><b>Control-Shift-G</b> opens another session</dd>
         <dt>Workspace</dt>

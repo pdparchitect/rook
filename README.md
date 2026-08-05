@@ -1,12 +1,12 @@
 # Rook
 
-<img width="1672" height="941" alt="ChatGPT Image Jun 1, 2026, 10_29_04 PM" src="https://github.com/user-attachments/assets/15d285bc-4310-4690-b2cb-f325b43ba0eb" />
+<img width="1672" height="941" alt="image" src="https://github.com/user-attachments/assets/0900d959-a741-4212-a8b8-bedd5eca3203" />
 
-**Rook** is a standalone, autonomous security agent for vulnerability research,
-bug hunting and source-code auditing. It is a single Go executable built on the
-[ChatBotKit Go SDK](https://github.com/chatbotkit/go-sdk), with a library of
-security skills embedded directly into the binary - no external files, no setup
-beyond an API key.
+**Rook** is an AI bug-hunting harness for vulnerability research, bug hunting and
+source-code auditing. It is a single Go executable that drives a model through
+the whole hunt, built on the [ChatBotKit Go SDK](https://github.com/chatbotkit/go-sdk),
+with a library of security skills embedded directly into the binary - no external
+files, no setup beyond a provider key.
 
 Give Rook a target and a scope, and it works through the problem the way a
 researcher would: reconnaissance, analysis, hypothesis, verification, and a
@@ -70,24 +70,23 @@ engagement. Rook is built for exactly those:
   in locked-down or offline environments where you can't `pip install` or pull
   containers. Its only external dependency is the ChatBotKit API (and your key).
 - **The hard parts run as a service.** This is the real reason Rook feels so
-  light. The AI agent harness - model orchestration, the reasoning and
-  tool-execution loop, skill handling, scaling and reliability - runs as a
-  managed service on ChatBotKit, built and maintained by a dedicated team of
-  engineers who do only this. The binary doesn't reimplement any of that
-  complexity; it embeds the skills and streams the conversation. So the agent
-  itself stays small and focused on the task at hand, and you inherit harness
-  improvements without shipping a new build.
+  light. Model orchestration, the reasoning and tool-execution loop, skill
+  handling, scaling and reliability all run as a managed service on ChatBotKit,
+  built and maintained by a dedicated team of engineers who do only this. The
+  binary doesn't reimplement any of that complexity; it embeds the skills and
+  streams the conversation. So the harness stays small and focused on the hunt,
+  and you inherit backend improvements without shipping a new build.
 - **Trivial to distribute and audit.** A single artifact with a published
   checksum is easy to vet, copy onto a target box, version-pin, and remove
   cleanly afterwards - important when you're operating inside someone else's
   scope.
-- **Purpose-built, not a general chatbot.** Rook ships as a focused
-  vulnerability-research and bug-hunting agent: it knows the methodology, the
-  bug classes, and the reporting discipline out of the box, and stays within
-  the authorization boundary you give it.
+- **Purpose-built, not a general chatbot.** Rook is a focused bug-hunting
+  harness: it knows the methodology, the bug classes, and the reporting
+  discipline out of the box, and stays within the authorization boundary you
+  give it.
 
-In short: the value isn't just "an AI security agent" - it's an AI security
-agent you can carry anywhere as **one file** and run with **zero setup**.
+In short: the value isn't just "an AI security tool" - it's an AI bug-hunting
+harness you can carry anywhere as **one file** and run with **zero setup**.
 
 ## Features
 
@@ -154,48 +153,50 @@ make build      # → ./rook
 
 A run targets a **backend** - the provider Rook talks to. Three ship built in:
 
-| Backend      | Endpoint                     | Auth style   | Credential              |
-| ------------ | ---------------------------- | ------------ | ----------------------- |
-| `relay`      | `https://relay.cbk.ai`       | per-model    | provider key per model  |
-| `cbk`        | `https://api.cbk.ai`         | Bearer       | `CBK_API_SECRET`        |
-| `chatbotkit` | `https://api.chatbotkit.com` | Bearer       | `CHATBOTKIT_API_SECRET` |
+| Backend      | Endpoint                     | Auth style | Credential              |
+| ------------ | ---------------------------- | ---------- | ----------------------- |
+| `relay`      | `https://relay.cbk.ai`       | per-model  | provider key per model  |
+| `cbk`        | `https://api.cbk.ai`         | Bearer     | `CBK_API_SECRET`        |
+| `chatbotkit` | `https://api.chatbotkit.com` | Bearer     | `CHATBOTKIT_API_SECRET` |
 
 Rook defaults to **`relay`**. Pick another with `--backend` (or `default_backend`
-in config). The model is resolved against the chosen backend, so it must be one
-that backend serves.
+in config). Model names come from the ChatBotKit catalogue and are resolved
+against the chosen backend; open models like `glm-5.2`, `kimi-k3` and
+`deepseek-v4-flash` suit autonomous security work.
 
 The two ChatBotKit backends authenticate with a Bearer token. The **relay is
-different**: it authenticates each model with *its own provider key*, carried
+different**: it authenticates each model with _its own provider key_, carried
 inside the model string as `<model>/authorization=<key>` - because on the relay
-each model is a different provider (OpenAI, Mistral, …) with a different key. So
-relay auth is configured **per model**:
+each model is a different provider (Z.AI, Moonshot, DeepSeek, …) with a different
+key. So relay auth is configured **per model**:
 
 ```yaml
 default_backend: relay
 backends:
   relay:
-    # authorization: $RELAY_API_KEY   # optional: one default key for all models
+    # authorization: $ZAI_API_KEY   # optional: one default key for all relay models
     models:
-      gpt-4:
-        authorization: $OPENAI_API_KEY
-      mistral-large:
-        authorization: $MISTRAL_API_KEY
+      glm-5.2:
+        authorization: $ZAI_API_KEY
+      kimi-k3:
+        authorization: $MOONSHOT_API_KEY
+      deepseek-v4-flash:
+        authorization: $DEEPSEEK_API_KEY
 ```
 
-```bash
-export OPENAI_API_KEY="sk-..."
-rook --model gpt-4 "…"           # → sends model gpt-4/authorization=sk-... to the relay
+There is no single relay API key - the credential is your own provider key, set
+per model (or as a backend-level default) in config.
 
-# A single default key for every relay model (composed the same way):
-export RELAY_API_KEY="sk-..."
-rook --model gpt-4 "…"
+```bash
+export ZAI_API_KEY="sk-..."
+rook --model glm-5.2 "…"         # → sends model glm-5.2/authorization=sk-... to the relay
 
 # You can also inline the key yourself; Rook leaves it untouched:
-rook --model 'gpt-4/authorization=sk-...' "…"
+rook --model 'glm-5.2/authorization=sk-...' "…"
 
 # The ChatBotKit backends just need their Bearer token:
 export CBK_API_SECRET="..."
-rook --backend cbk --model qwen-3.6-plus "…"
+rook --backend cbk --model kimi-k3 "…"
 ```
 
 Rook composes the `authorization=` param onto the model automatically from the
@@ -205,21 +206,20 @@ left as-is.
 ## Configuration
 
 Configuration is layered: **built-in defaults < config file < `ROOK_*` env vars
-< CLI flags**. The config file is optional - env vars alone are enough, which
-keeps "download the binary and run with just a key" true.
+< CLI flags**. The config file is optional - env vars alone are enough.
 
 ```bash
-mkdir -p ~/.config/rook
-cp configs/rook.example.yaml ~/.config/rook/config.yaml
+rook config        # opens the config in $EDITOR, creating it from a template
+rook config path   # print the config file location
 ```
 
 The file lives at `~/.config/rook/config.yaml` (override with `$ROOK_CONFIG` or
 `--config`). Every scalar has a matching `ROOK_*` env var (`agent.model` →
-`ROOK_AGENT_MODEL`, `default_backend` → `ROOK_DEFAULT_BACKEND`). Backend
-credentials are read from each backend's own variable above; keep secrets in the
-environment, not in the file (the file may `$`-reference them). A `.env` in the
-working directory is still loaded as a convenience for populating those
-variables. See [configs/rook.example.yaml](configs/rook.example.yaml).
+`ROOK_AGENT_MODEL`, `default_backend` → `ROOK_DEFAULT_BACKEND`). The Bearer
+backends' credentials can come from their own env var or `api_secret` in the
+file; the relay's per-model provider key is set in the file (or `$`-referenced
+from the environment). A `.env` in the working directory is also loaded as a
+convenience. See [configs/rook.example.yaml](configs/rook.example.yaml).
 
 Rook strips the resolved backend credential from the environment before the
 agent runs, so the commands it executes against a target cannot read it.
@@ -258,7 +258,8 @@ for the full guide.
 ## Usage
 
 ```bash
-export RELAY_API_KEY="your-provider-key"   # default "relay" backend
+# default "relay" backend: set your per-model provider key in the config file
+# (see Backends above); or use a ChatBotKit backend: export CBK_API_SECRET=...
 
 # Audit a local codebase
 rook --scope "repo: ./server, no network access" \
@@ -275,16 +276,16 @@ Rook loads a `.env` file automatically if present (see `.env.example`).
 
 ### Flags
 
-| Flag               | Default            | Description                                        |
-| ------------------ | ------------------ | -------------------------------------------------- |
-| `--backend`        | `relay`            | Backend to target: `relay`, `cbk`, or `chatbotkit` |
-| `--config`         | `~/.config/rook/config.yaml` | Path to the config file (or `$ROOK_CONFIG`) |
-| `--model`          | `qwen-3.6-plus`    | Model the agent reasons with (overrides config)    |
-| `--max-iterations` | `10000`            | Maximum agent iterations before a forced stop      |
-| `--scope`          | -                  | Authorization boundary (hosts, repos, paths)       |
-| `--scope-file`     | -                  | Read the authorization scope from a file           |
-| `-v`, `--verbose`  | `false`            | Stream the agent's reasoning tokens to stdout      |
-| `-V`, `--version`  | -                  | Print version and exit                             |
+| Flag               | Default                      | Description                                        |
+| ------------------ | ---------------------------- | -------------------------------------------------- |
+| `--backend`        | `relay`                      | Backend to target: `relay`, `cbk`, or `chatbotkit` |
+| `--config`         | `~/.config/rook/config.yaml` | Path to the config file (or `$ROOK_CONFIG`)        |
+| `--model`          | `glm-5.2`                    | Model the agent reasons with (overrides config)    |
+| `--max-iterations` | `10000`                      | Maximum agent iterations before a forced stop      |
+| `--scope`          | -                            | Authorization boundary (hosts, repos, paths)       |
+| `--scope-file`     | -                            | Read the authorization scope from a file           |
+| `-v`, `--verbose`  | `false`                      | Stream the agent's reasoning tokens to stdout      |
+| `-V`, `--version`  | -                            | Print version and exit                             |
 
 Flags override `ROOK_*` environment variables, which override the config file,
 which overrides the built-in defaults.

@@ -1,16 +1,9 @@
 #!/bin/bash
 # desktop-panel-status - text for the tint2 status slot.
 #
-# The one thing worth saying in a panel slot on a fresh Rook desktop is whether
-# it has a backend key yet. The default backend is the relay, so a RELAY_API_KEY
-# in the environment or saved under ~/.config/rook counts, and a session already
-# set up is not told to configure one.
+# Rook shows nothing here. Setup is prompted in the welcome terminal (the
+# rook-greeting banner says "run rook config" until a key is set), so a panel
+# label would only be decorative. Emitting no output leaves the slot empty and
+# suppresses any base default.
 
-set -uo pipefail
-
-if [ -n "${RELAY_API_KEY:-}" ] ||
-    grep -q 'RELAY_API_KEY' "${HOME}/.config/rook/env" 2>/dev/null; then
-    printf '<span foreground="#C4C7D0">ROOK</span>\n'
-else
-    printf '<span foreground="#DE3B4B">ROOK · RUN rook-setup</span>\n'
-fi
+exit 0

@@ -13,3 +13,9 @@ import "embed"
 //
 //go:embed skills
 var SkillsFS embed.FS
+
+// ExampleConfigYAML is the commented starter config baked into the binary, used
+// by `rook config` to seed ~/.config/rook/config.yaml when it does not exist yet.
+//
+//go:embed configs/rook.example.yaml
+var ExampleConfigYAML []byte

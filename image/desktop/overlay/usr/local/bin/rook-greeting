@@ -13,24 +13,29 @@ muted='\033[38;2;110;114;128m'
 reset='\033[0m'
 
 key_ready() {
-    [ -n "${RELAY_API_KEY:-}" ] && return 0
-    grep -q 'RELAY_API_KEY' "${HOME}/.config/rook/env" 2>/dev/null
+    # A non-empty authorization value (the seeded template has an empty one).
+    grep -qE "authorization:[[:space:]]*['\"]?[^'\"[:space:]]" \
+        "${HOME}/.config/rook/config.yaml" 2>/dev/null
 }
 
 printf '\n'
-printf "${crimson}  ▟█▙ Rook${reset} ${muted}— autonomous security research agent${reset}\n\n"
+printf "${crimson}  ▟█▙ Rook${reset} ${muted}— AI bug-hunting harness${reset}\n\n"
 
 if key_ready; then
     printf "${white}  Ready.${reset} ${muted}Give it a task and an explicit scope:${reset}\n\n"
 else
-    printf "${crimson}  No key set.${reset} ${muted}Run${reset} ${white}rook-setup${reset} ${muted}once (saves RELAY_API_KEY), then reopen this terminal.${reset}\n\n"
+    printf "${crimson}  No key set.${reset} ${muted}Run${reset} ${white}rook config${reset} ${muted}to set your backend, model and provider key.${reset}\n\n"
 fi
 
-printf "${muted}    rook --scope \"repo: ./api, read-only, no network\" \\\\\n"
-printf "         \"Audit ./api for SQL injection, IDOR and auth bypass\"${reset}\n\n"
+printf "${muted}    rook --scope \"web: https://staging.example.com, authorized pentest, non-destructive\" \\\\\n"
+printf "         \"Full pentest of staging.example.com: recon, auth and access control,\n"
+printf "          injection, SSRF, IDOR and business-logic flaws - verify each finding\n"
+printf "          and deliver a report with reproductions and severity\"${reset}\n\n"
 
-printf "${muted}    rook --scope-file scope.txt \\\\\n"
-printf "         \"Test the link-preview endpoint on staging.example.com for SSRF\"${reset}\n\n"
+printf "${muted}    rook --scope-file engagement.txt \\\\\n"
+printf "         \"Run the authorized engagement in engagement.txt end to end: map the\n"
+printf "          attack surface, chain and verify exploitable issues, and write up the\n"
+printf "          kill chain with remediation\"${reset}\n\n"
 
 printf "${muted}  Authorized use only. Always pass an explicit --scope describing the${reset}\n"
 printf "${muted}  systems you are permitted to assess. The workspace is /workspace.${reset}\n"

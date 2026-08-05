@@ -1,13 +1,13 @@
-// Command rook is a standalone autonomous security agent for vulnerability
-// research, bug hunting and source-code auditing. It is built on the
-// ChatBotKit Go SDK and ships with an embedded library of security skills.
+// Command rook is an AI bug-hunting harness for vulnerability research, bug
+// hunting and source-code auditing. It is built on the ChatBotKit Go SDK and
+// ships with an embedded library of security skills.
 //
 // Usage:
 //
-//	export RELAY_API_KEY="your-provider-key"   # default "relay" backend
+//	rook config                                 # edit the config (backend, model, key)
 //	rook "Audit the HTTP handlers in ./server for injection bugs"
 //	rook --scope "repo: ./server, no network" "Hunt for auth bypasses"
-//	rook --backend cbk "..."                   # ChatBotKit backend instead
+//	export CBK_API_SECRET="..."; rook --backend cbk "..."   # ChatBotKit backend
 //	rook version
 //
 // Configuration is layered: built-in defaults < config file < ROOK_* env vars <
@@ -22,13 +22,16 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 
 	"github.com/joho/godotenv"
 	"github.com/spf13/pflag"
 
+	rook "github.com/chatbotkit/rook"
 	"github.com/chatbotkit/rook/internal/agent"
 	"github.com/chatbotkit/rook/internal/config"
 	"github.com/chatbotkit/rook/internal/version"
@@ -36,7 +39,7 @@ import (
 
 func main() {
 	// A .env in the working directory is a convenience for populating the
-	// environment (e.g. RELAY_API_KEY); the config file is the primary surface.
+	// environment (e.g. CBK_API_SECRET); the config file is the primary surface.
 	godotenv.Load()
 
 	flags := pflag.NewFlagSet("rook", pflag.ContinueOnError)
@@ -50,8 +53,8 @@ func main() {
 	showVersion := flags.BoolP("version", "V", false, "print version and exit")
 
 	flags.Usage = func() {
-		fmt.Fprintf(os.Stderr, "rook - autonomous security research agent\n\n")
-		fmt.Fprintf(os.Stderr, "Usage:\n  rook [flags] <task>\n  rook version\n\nFlags:\n")
+		fmt.Fprintf(os.Stderr, "rook - AI bug-hunting harness\n\n")
+		fmt.Fprintf(os.Stderr, "Usage:\n  rook [flags] <task>\n  rook config          edit the config file in $EDITOR (creates it on first run)\n  rook version\n\nFlags:\n")
 		flags.PrintDefaults()
 	}
 
@@ -59,6 +62,20 @@ func main() {
 	args := os.Args[1:]
 	if len(args) > 0 && args[0] == "version" {
 		printVersion()
+		return
+	}
+
+	// `rook config` opens the config file in $EDITOR, seeding it from the
+	// embedded template on first run. `rook config path` prints its location.
+	if len(args) > 0 && args[0] == "config" {
+		if len(args) > 1 && args[1] == "path" {
+			fmt.Println(config.DefaultConfigPath())
+			return
+		}
+		if err := editConfig(); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
 		return
 	}
 
@@ -145,6 +162,52 @@ func main() {
 func printVersion() {
 	fmt.Printf("rook %s\n", version.Version)
 	notifyUpdate()
+}
+
+// editConfig ensures the config file exists - seeding it from the embedded
+// template on first run - and opens it in the user's editor. This is the setup
+// path: configure the backend, model and provider key by editing the file.
+func editConfig() error {
+	path := config.DefaultConfigPath()
+
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return fmt.Errorf("create config directory: %w", err)
+	}
+
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		if err := os.WriteFile(path, rook.ExampleConfigYAML, 0o600); err != nil {
+			return fmt.Errorf("write config template: %w", err)
+		}
+		fmt.Fprintf(os.Stderr, "Created %s from the template.\n", path)
+	}
+
+	editor := firstNonEmpty(os.Getenv("VISUAL"), os.Getenv("EDITOR"))
+	if editor == "" {
+		for _, candidate := range []string{"nano", "vi", "vim"} {
+			if _, err := exec.LookPath(candidate); err == nil {
+				editor = candidate
+				break
+			}
+		}
+	}
+	if editor == "" {
+		fmt.Println(path)
+		return fmt.Errorf("no editor found; set $EDITOR and re-run (the config is at the path above)")
+	}
+
+	// Editors expect the real terminal; wire the standard streams through.
+	cmd := exec.Command(editor, path)
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+	return cmd.Run()
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // notifyUpdate prints a one-line notice to stderr when a newer release exists.

@@ -28,10 +28,10 @@ VOLUME_PREFIX ?= rook-desktop
 GPU_DEVICE := $(shell for node in /dev/dri/renderD*; do \
 	[ -e "$$node" ] && echo "--device=$$node"; done)
 
-# Rook reads its backend key from the environment; pass any that are set on the
-# host straight through, so a run can reach the relay/cbk/chatbotkit backends
-# without running rook-setup inside the session first.
-KEY_ENV := $(foreach v,RELAY_API_KEY CBK_API_SECRET CHATBOTKIT_API_SECRET,\
+# The ChatBotKit backends read a Bearer token from the environment; pass any set
+# on the host straight through. The relay's provider key is not an env var - it
+# is saved into the config via `rook config` inside the session.
+KEY_ENV := $(foreach v,CBK_API_SECRET CHATBOTKIT_API_SECRET,\
 	$(if $(strip $($(v))),--env "$(v)=$($(v))",))
 
 .PHONY: help check build run recreate up test smoke stop logs vnc-log status url
@@ -55,7 +55,7 @@ help:
 	@echo "Overrides: PORT=7000 PREVIEW_PORT=7001"
 	@echo "           PLATFORM=linux/arm64 (default: $(PLATFORM))"
 	@echo "           DESKTOP_IMAGE=$(DESKTOP_IMAGE)"
-	@echo "           RELAY_API_KEY=sk-... (passed through to the container)"
+	@echo "           CBK_API_SECRET=... (passed through; for --backend cbk)"
 
 check:
 	bash tests/test-image.sh

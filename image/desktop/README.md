@@ -1,12 +1,12 @@
 # Rook desktop image
 
 A [Launcher](https://github.com/pdparchitect/launcher) product image: Rook, the
-autonomous security agent, packaged as an isolated browser desktop you can
-install, run on real work, and remove cleanly.
+AI bug-hunting harness, packaged as an isolated browser desktop you can install,
+run on real work, and remove cleanly.
 
-Rook is not an interactive agent — each run takes a task and an authorization
-scope — so the desktop opens a **persistent terminal in `/workspace`**, not an
-agent process. You drive `rook` from there.
+Rook is not an interactive chat — each run takes a task and an authorization
+scope — so the desktop opens a **persistent terminal in `/workspace`** where you
+drive `rook`, rather than launching a long-running process.
 
 ## Layout
 
@@ -20,10 +20,9 @@ image/desktop/
     opt/browser/index.html             the browser landing page
     usr/local/bin/desktop-welcome      the terminal opened on start
     usr/local/bin/desktop-harness      Ctrl-Shift-G opens another terminal
-    usr/local/bin/desktop-panel-status the panel's API-key indicator
+    usr/local/bin/desktop-panel-status leaves the panel status slot empty
     usr/local/bin/desktop-selftest     live assertions for the smoke test
     usr/local/bin/rook-greeting        the banner printed in the terminal
-    usr/local/bin/rook-setup           saves the ChatBotKit API secret
     usr/share/backgrounds/…            the wallpaper
   theme/apply-theme.sh                 recolours the inherited chrome to Rook's
                                        obsidian + crimson palette (build time)
@@ -49,9 +48,9 @@ make test      # check + build + run + smoke
 
 `make run` publishes the desktop on <http://localhost:6901> and the bridge on
 <http://localhost:6902> (`/healthz`, `/preview.jpg`), mounts named volumes for
-`/workspace` and `/home/agent/.config/rook`, and passes any `RELAY_API_KEY` /
-`CBK_API_SECRET` / `CHATBOTKIT_API_SECRET` set in your shell straight through, so
-a run can reach a backend without `rook-setup` first. Common overrides:
+`/workspace` and `/home/agent/.config/rook`, and passes any `CBK_API_SECRET` /
+`CHATBOTKIT_API_SECRET` set in your shell straight through (for the ChatBotKit
+backends). Common overrides:
 
 ```sh
 make run PORT=7000 PREVIEW_PORT=7001         # different host ports
@@ -75,16 +74,17 @@ substrate version for reproducible builds.
 
 ## The API key
 
-Rook defaults to the CBK Relay backend, whose credential is `RELAY_API_KEY`
-(your OpenAI/OpenRouter key). Launcher bakes an application's environment into the
-container and does not let a user set a per-agent variable, and Rook has no
-interactive sign-in — it reads the key from the environment. So it's entered
-inside the session, once: run `rook-setup`, which saves it to the persistent
-`~/.config/rook` volume; `/etc/profile.d/rook-env.sh` then exports it into every
-later terminal. The panel shows `ROOK · RUN rook-setup` until a key is present.
+Rook defaults to the CBK Relay backend, which authenticates each model with your
+own provider key (for the default `glm-5.2` model, a Z.AI key). There is no
+single relay API key. Setup is the built-in **`rook config`**: it seeds
+`~/.config/rook/config.yaml` from the template on first run and opens it in
+`$EDITOR`, where you set the backend, model and `authorization` (your provider
+key). The file lives on the persistent `~/.config/rook` volume and rook reads it
+directly. The panel shows `ROOK · RUN rook config` until a key is present.
 
-To use the ChatBotKit backends instead, run `rook-setup CBK_API_SECRET` (or
-`CHATBOTKIT_API_SECRET`) and `rook --backend cbk` (or `chatbotkit`).
+The same file configures per-model keys and the ChatBotKit backends (`--backend
+cbk` with `api_secret`, or `CBK_API_SECRET` passed via the container
+environment).
 
 ## A future benchmark variant
 
