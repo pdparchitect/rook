@@ -27,7 +27,7 @@ if grep -Eiq 'releases/download|ROOK_SHA256|ROOK_VERSION' "$dockerfile"; then
 fi
 grep -Fq 'go build' "$dockerfile"
 
-# The persistent config dir holds the config rook reads (including the relay
+# The persistent config dir holds the config rook reads (including the provider
 # provider key `rook config` writes), so the Dockerfile must declare it.
 grep -Fq '/home/agent/.config/rook' "$dockerfile"
 # Setup is the built-in `rook config`, surfaced in the welcome greeting.

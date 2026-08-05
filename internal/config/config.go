@@ -17,7 +17,8 @@ import (
 // glm-5.2 is a strong open model well suited to autonomous security work: large
 // context for reading codebases during source audits, solid tool use, and it is
 // open/permissive for offensive-security tasks. The model must be one the
-// selected backend serves (a ChatBotKit catalogue name).
+// selected backend actually serves, which is why the default backend below is
+// the provider that serves this one.
 const DefaultModel = "glm-5.2"
 
 // DefaultMaxIterations bounds how many tool-using turns the agent may take
@@ -25,19 +26,25 @@ const DefaultModel = "glm-5.2"
 const DefaultMaxIterations = 10000
 
 // DefaultBackend is the backend a run targets when --backend and config do not
-// select one. Rook defaults to the CBK Relay: a run brings its own provider
-// key and reaches models through relay.cbk.ai.
-const DefaultBackend = "relay"
+// select one.
+//
+// @note it has to serve DefaultModel. A default pair that cannot talk to each
+// other is worse than no default, because the failure arrives as a provider
+// error rather than as a configuration one.
+const DefaultBackend = "zai"
 
 // Config is the fully-resolved Rook configuration.
 type Config struct {
 	Agent Agent `yaml:"agent"`
+	// RunDir is the base directory under which each run writes its artifacts (a
+	// per-run subdirectory with status.json and events.jsonl). Empty uses the
+	// built-in default, $XDG_STATE_HOME/rook/runs.
+	RunDir string `yaml:"run_dir"`
 	// DefaultBackend is the backend used when --backend is not given.
 	DefaultBackend string `yaml:"default_backend"`
-	// Backends are the named providers a run can target. Rook ships with three -
-	// "relay" (CBK Relay, the default), "cbk" (ChatBotKit at api.cbk.ai) and
-	// "chatbotkit" (ChatBotKit at api.chatbotkit.com) - and a config file can
-	// override their credentials/endpoint or add custom model entries.
+	// Backends are the named providers a run can target. Rook ships with one per
+	// provider it knows; a config file can override their credential or
+	// endpoint, or add custom model entries.
 	Backends map[string]Backend `yaml:"backends"`
 }
 
@@ -50,22 +57,20 @@ type Agent struct {
 	MaxIterations int `yaml:"max_iterations"`
 }
 
-// Backend is a provider Rook can run against. How a run authenticates depends on
-// the backend's style: the ChatBotKit backends send a Bearer credential
-// (APISecret); the relay carries the provider credential per model, inside the
-// model string (Authorization), because on the relay each model is a different
-// provider with its own key.
+// Backend is a provider Rook can run against. Every provider authenticates with
+// a Bearer credential.
 type Backend struct {
+	// Provider names the model provider this backend talks to: "openai",
+	// "anthropic", "zai" and so on. Empty infers it from the backend's own name,
+	// so a backend called "groq" needs no further configuration.
+	Provider string `yaml:"provider"`
 	// BaseURL overrides the API endpoint. Empty uses the built-in default.
+	// Required for a "custom" provider.
 	BaseURL string `yaml:"base_url"`
-	// APISecret is the Bearer credential for the ChatBotKit backends. Supports
-	// "$ENV_VAR" references; for the built-ins it defaults from the environment.
-	APISecret string `yaml:"api_secret"`
-	// Authorization is the relay's default model credential, applied to every
-	// model on this backend that does not set its own. Supports "$ENV_VAR" (point
-	// it at your own provider key). It has no built-in environment default.
-	// Ignored by the Bearer backends.
-	Authorization string `yaml:"authorization"`
+	// APIKey is the provider credential. Supports "$ENV_VAR" references, so no
+	// secret need be written to disk; for a built-in it defaults from the
+	// provider's conventional variable.
+	APIKey string `yaml:"api_key"`
 	// Models holds custom, named model configurations for this backend. When a
 	// run's model name matches a key here, that entry's settings take priority.
 	Models map[string]ModelConfig `yaml:"models"`
@@ -79,46 +84,52 @@ type ModelConfig struct {
 	Model string `yaml:"model"`
 	// MaxIterations overrides the global iteration cap for this model.
 	MaxIterations int `yaml:"max_iterations"`
-	// Authorization is this model's provider credential on the relay, composed
-	// into the model string as "<model>/authorization=<value>". Supports
-	// "$ENV_VAR". Overrides the backend-level Authorization. Ignored by the
-	// Bearer backends.
-	Authorization string `yaml:"authorization"`
+	// Provider overrides the backend's provider for this model, so one gateway
+	// entry can front several.
+	Provider string `yaml:"provider"`
+	// APIKey is this model's own credential, overriding the backend's. Supports
+	// "$ENV_VAR".
+	APIKey string `yaml:"api_key"`
 }
 
-// authStyle is how a backend authenticates a run.
-type authStyle int
-
-const (
-	// authBearer sends the credential as an Authorization: Bearer header.
-	authBearer authStyle = iota
-	// authModelParam carries the credential inside the model string, as
-	// "<model>/authorization=<value>" - the CBK Relay's convention, where each
-	// model is a distinct provider authenticated with its own key.
-	authModelParam
-)
-
-// builtinBackends are the providers Rook ships with: their default endpoint and
-// how they authenticate. The Bearer backends fall back to a brand-named
-// environment variable for their credential; the relay has no such default -
-// its per-model provider credential comes from config (or is inlined into the
-// model). "cbk" and "chatbotkit" are the same platform on its two hosts and
-// take the same credential value under their own variable.
+// builtinBackends are the providers Rook ships with, each seeded from its
+// provider's conventional environment variable so exporting that one variable is
+// all a run needs.
+//
+// The endpoints themselves live in the engine, which is what actually calls
+// them; duplicating the URLs here would give two places for them to drift.
+// Ollama is deliberately included: a local model is the right default for
+// security work on material that must not leave the machine.
 var builtinBackends = map[string]struct {
-	baseURL   string
-	style     authStyle
-	secretEnv string // Bearer credential fallback (authBearer)
+	secretEnv string // the provider's conventional credential variable
 }{
-	"relay":      {baseURL: "https://relay.cbk.ai", style: authModelParam},
-	"cbk":        {baseURL: "https://api.cbk.ai", style: authBearer, secretEnv: "CBK_API_SECRET"},
-	"chatbotkit": {baseURL: "https://api.chatbotkit.com", style: authBearer, secretEnv: "CHATBOTKIT_API_SECRET"},
+	"openai":     {secretEnv: "OPENAI_API_KEY"},
+	"anthropic":  {secretEnv: "ANTHROPIC_API_KEY"},
+	"groq":       {secretEnv: "GROQ_API_KEY"},
+	"mistral":    {secretEnv: "MISTRAL_API_KEY"},
+	"deepseek":   {secretEnv: "DEEPSEEK_API_KEY"},
+	"openrouter": {secretEnv: "OPENROUTER_API_KEY"},
+	"together":   {secretEnv: "TOGETHER_API_KEY"},
+	"cerebras":   {secretEnv: "CEREBRAS_API_KEY"},
+	"xai":        {secretEnv: "XAI_API_KEY"},
+	"moonshot":   {secretEnv: "MOONSHOT_API_KEY"},
+	"zai":        {secretEnv: "ZAI_API_KEY"},
+	"qwen":       {secretEnv: "DASHSCOPE_API_KEY"},
+	"ollama":     {},
 }
 
-func backendStyle(name string) authStyle {
-	if b, ok := builtinBackends[name]; ok {
-		return b.style
+// BackendProvider returns the provider a backend talks to, inferring it from the
+// backend's own name when nothing says otherwise.
+func BackendProvider(name string, backend Backend) string {
+	if p := strings.TrimSpace(backend.Provider); p != "" {
+		return p
 	}
-	return authBearer
+
+	if _, ok := builtinBackends[name]; ok {
+		return name
+	}
+
+	return ""
 }
 
 // Defaults returns the built-in configuration used when nothing else is set.
@@ -168,10 +179,12 @@ func Load(path string) (Config, error) {
 	return cfg, nil
 }
 
-// resolveBackends ensures the built-in backends exist, fills their default
-// endpoint, and resolves every credential (config "$ENV" reference first, then
-// the built-in environment fallback) - the Bearer secret, the backend-level
-// model authorization, and each model's own authorization.
+// resolveBackends ensures the built-in backends exist and resolves every
+// credential: a config "$ENV_VAR" reference first, then the provider's
+// conventional environment variable as a fallback.
+//
+// The endpoint is left empty for a built-in. The engine knows each provider's
+// URL, so filling one in here would create a second copy to drift.
 func resolveBackends(cfg *Config) {
 	if cfg.Backends == nil {
 		cfg.Backends = map[string]Backend{}
@@ -185,28 +198,18 @@ func resolveBackends(cfg *Config) {
 
 	for name, b := range cfg.Backends {
 		builtin, isBuiltin := builtinBackends[name]
-		if b.BaseURL == "" && isBuiltin {
-			b.BaseURL = builtin.baseURL
+
+		b.APIKey = resolveSecret(b.APIKey)
+
+		// Exporting the provider's own variable is enough on its own, which is
+		// what makes a run possible with no config file at all.
+		if b.APIKey == "" && isBuiltin && builtin.secretEnv != "" {
+			b.APIKey = strings.TrimSpace(os.Getenv(builtin.secretEnv))
 		}
 
-		// Bearer credential (authBearer backends).
-		if s := strings.TrimSpace(b.APISecret); s != "" {
-			b.APISecret = resolveSecret(s)
-		} else if isBuiltin && builtin.secretEnv != "" {
-			b.APISecret = strings.TrimSpace(os.Getenv(builtin.secretEnv))
-		}
-
-		// Backend-level model authorization (authModelParam backends). No
-		// environment default - the relay's provider credential comes from config
-		// (or is inlined into the model).
-		if a := strings.TrimSpace(b.Authorization); a != "" {
-			b.Authorization = resolveSecret(a)
-		}
-
-		// Per-model authorization.
 		for mName, mc := range b.Models {
-			if mc.Authorization != "" {
-				mc.Authorization = resolveSecret(mc.Authorization)
+			if mc.APIKey != "" {
+				mc.APIKey = resolveSecret(mc.APIKey)
 				b.Models[mName] = mc
 			}
 		}
@@ -226,67 +229,84 @@ func resolveSecret(v string) string {
 	return v
 }
 
-// Selected resolves the default backend into the endpoint, credential, model,
-// and iteration cap a run uses, applying any custom model definition. It is the
-// one place the backend choice turns into concrete client settings - including
-// composing the relay's "<model>/authorization=<key>" model string.
-func (c Config) Selected() (backend Backend, model string, maxIterations int, err error) {
+// Selected resolves the default backend into the provider, endpoint, credential,
+// model and iteration cap a run uses, applying any custom model definition.
+//
+// It is the one place a backend choice turns into concrete client settings, so
+// a misconfiguration is reported here - before a request is made - rather than
+// as a provider error mid-run.
+func (c Config) Selected() (Selection, error) {
 	b, ok := c.Backends[c.DefaultBackend]
 	if !ok {
-		return Backend{}, "", 0, fmt.Errorf("backend %q is not configured", c.DefaultBackend)
+		return Selection{}, fmt.Errorf("backend %q is not configured", c.DefaultBackend)
 	}
 
-	model = c.Agent.Model
-	maxIterations = c.Agent.MaxIterations
-	auth := b.Authorization
-	if mc, ok := b.Models[model]; ok {
+	selection := Selection{
+		Provider:      BackendProvider(c.DefaultBackend, b),
+		BaseURL:       b.BaseURL,
+		APIKey:        b.APIKey,
+		Model:         c.Agent.Model,
+		MaxIterations: c.Agent.MaxIterations,
+	}
+
+	if mc, ok := b.Models[selection.Model]; ok {
 		if mc.Model != "" {
-			model = mc.Model
+			selection.Model = mc.Model
 		}
 		if mc.MaxIterations > 0 {
-			maxIterations = mc.MaxIterations
+			selection.MaxIterations = mc.MaxIterations
 		}
-		if mc.Authorization != "" {
-			auth = mc.Authorization
+		if mc.Provider != "" {
+			selection.Provider = mc.Provider
 		}
-	}
-
-	switch backendStyle(c.DefaultBackend) {
-	case authModelParam:
-		// The relay authenticates the provider per model, inside the model
-		// string. Respect a key the caller already inlined into --model.
-		if !strings.Contains(model, "/authorization=") {
-			if auth == "" {
-				return Backend{}, "", 0, fmt.Errorf(
-					"no authorization for model %q on backend %q (set authorization on the model or the backend in config, or inline it as %s/authorization=KEY)",
-					model, c.DefaultBackend, model)
-			}
-			model = model + "/authorization=" + auth
-		}
-	default: // authBearer
-		if b.APISecret == "" {
-			return Backend{}, "", 0, fmt.Errorf(
-				"no API secret for backend %q (set %s in the environment or api_secret in config)",
-				c.DefaultBackend, secretEnvName(c.DefaultBackend))
+		if mc.APIKey != "" {
+			selection.APIKey = mc.APIKey
 		}
 	}
 
-	return b, model, maxIterations, nil
+	if selection.Provider == "" {
+		return Selection{}, fmt.Errorf(
+			"backend %q does not name a model provider (set provider: on the backend or the model)",
+			c.DefaultBackend)
+	}
+
+	// Ollama is local and unauthenticated; everything else needs a key, and
+	// saying so now beats a 401 halfway through a run.
+	if selection.APIKey == "" && selection.Provider != "ollama" {
+		return Selection{}, fmt.Errorf(
+			"no API key for backend %q (set %s in the environment, or api_key in config)",
+			c.DefaultBackend, secretEnvName(c.DefaultBackend))
+	}
+
+	return selection, nil
+}
+
+// Selection is a resolved backend choice: everything a run needs to build its
+// client.
+type Selection struct {
+	Provider      string
+	BaseURL       string
+	APIKey        string
+	Model         string
+	MaxIterations int
 }
 
 func secretEnvName(backend string) string {
 	if b, ok := builtinBackends[backend]; ok && b.secretEnv != "" {
 		return b.secretEnv
 	}
+
 	return "its credential"
 }
 
-// ScrubBackendSecrets removes every resolved backend credential - Bearer
-// secrets and provider authorizations, backend-level and per-model - from the
-// process environment. Config retains the resolved values used by the SDK
-// client, while shell commands the agent executes no longer inherit those
-// credentials, which matters for an offensive-security agent that runs commands
-// against targets.
+// ScrubBackendSecrets removes every resolved backend credential, backend-level
+// and per-model, from the process environment.
+//
+// Config keeps the resolved values for the client, while shell commands the
+// agent runs no longer inherit them. That matters more for Rook than for most
+// tools: an offensive-security agent runs commands against targets, and a
+// provider key in the environment of one of those commands is a key that can
+// leave with it.
 func ScrubBackendSecrets(cfg Config) {
 	secrets := map[string]bool{}
 	add := func(v string) {
@@ -295,10 +315,9 @@ func ScrubBackendSecrets(cfg Config) {
 		}
 	}
 	for _, backend := range cfg.Backends {
-		add(backend.APISecret)
-		add(backend.Authorization)
+		add(backend.APIKey)
 		for _, mc := range backend.Models {
-			add(mc.Authorization)
+			add(mc.APIKey)
 		}
 	}
 	if len(secrets) == 0 {
@@ -336,24 +355,27 @@ const Backstory = `You are Rook, an autonomous offensive-security agent speciali
 vulnerability research, bug hunting, source-code auditing and exploit
 development. You operate as a careful, methodical researcher.
 
+You have four tools: "read" and "list" to inspect files and directories,
+"write" to create them, and "shell" to run commands.
+
 Operating rules:
 - Stay strictly within the authorized scope. Never touch systems, hosts,
   repositories or paths outside it.
 - Work in phases: reconnaissance, analysis, hypothesis, verification,
-  reporting. Use the "plan" tool to lay out your approach and "progress" to
-  record findings as you go.
-- Prefer reading and static analysis before any active testing. Use the
-  "exec" tool only for safe, non-destructive, non-interactive commands.
+  reporting. Narrate each phase in your reasoning so the run is followable.
+- Prefer reading and static analysis before any active testing. Use "shell"
+  only for safe, non-destructive, non-interactive commands.
 - Every claimed vulnerability must be backed by concrete evidence (a file
   and line, a request/response, a reproduction). Do not speculate without
   marking it clearly as a hypothesis.
-- Do not create files on your own. Deliver your output as your response;
-  only write files if the task explicitly asks for it.
-- When the investigation is complete, produce a structured report and call
-  the "exit" tool with code 0. Use a non-zero exit code if you cannot
-  proceed.
+- Do not create files on your own. Deliver your findings as your response;
+  only "write" a file if the task explicitly asks for it.
+- When the investigation is complete, record the outcome: call "_success"
+  with a summary of what you found, or "_failure" with the reason if you
+  cannot proceed. Do not simply stop - the run is not over until an outcome
+  is recorded.
 
-You have a built-in library of security skills. Consult the relevant skill
-before starting each phase.
+You have a built-in library of security skills. Read the relevant skill with
+the "skill" tool before starting each phase.
 
 %s`

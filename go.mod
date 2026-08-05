@@ -1,15 +1,19 @@
-module github.com/chatbotkit/rook
+module github.com/pdparchitect/rook
 
-go 1.21
-
-// @note pin the build toolchain to a stdlib-patched Go (GO-2026-5037 /
-// GO-2026-5039 are fixed in go1.26.4). Bump as future stdlib advisories land.
-toolchain go1.26.4
+// @note pinned to a stdlib-patched Go. Advisories land against the standard
+// library regularly and govulncheck gates CI, so this tracks the current patch
+// release rather than a floating minor.
+go 1.26.5
 
 require (
-	github.com/chatbotkit/go-sdk v0.4.0
 	github.com/joho/godotenv v1.5.1
+	github.com/openzot/openzot v0.7.0
 	github.com/spf13/pflag v1.0.5
 )
 
 require gopkg.in/yaml.v3 v3.0.1
+
+require (
+	github.com/dlclark/regexp2/v2 v2.5.1 // indirect
+	github.com/tiktoken-go/tokenizer v0.8.1 // indirect
+)

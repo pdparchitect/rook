@@ -23,7 +23,7 @@ check "the workspace is writable" test -w /workspace
 # Rook is stateless; the one persisted path is its config dir (saved key + any
 # config.yaml) under ~/.config/rook.
 check "the config directory is writable" test -w "${HOME}/.config/rook"
-# `rook config` writes the relay provider key into ~/.config/rook/config.yaml,
+# `rook config` writes the provider key into ~/.config/rook/config.yaml,
 # which rook reads directly - there is no env-export hook.
 check "rook config resolves a path" rook config path
 

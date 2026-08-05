@@ -48,9 +48,9 @@ make test      # check + build + run + smoke
 
 `make run` publishes the desktop on <http://localhost:6901> and the bridge on
 <http://localhost:6902> (`/healthz`, `/preview.jpg`), mounts named volumes for
-`/workspace` and `/home/agent/.config/rook`, and passes any `CBK_API_SECRET` /
-`CHATBOTKIT_API_SECRET` set in your shell straight through (for the ChatBotKit
-backends). Common overrides:
+`/workspace` and `/home/agent/.config/rook`, and passes any provider key set in
+your shell (`ZAI_API_KEY`, `OPENAI_API_KEY`, …) straight through. Common
+overrides:
 
 ```sh
 make run PORT=7000 PREVIEW_PORT=7001         # different host ports
@@ -74,17 +74,16 @@ substrate version for reproducible builds.
 
 ## The API key
 
-Rook defaults to the CBK Relay backend, which authenticates each model with your
-own provider key (for the default `glm-5.2` model, a Z.AI key). There is no
-single relay API key. Setup is the built-in **`rook config`**: it seeds
-`~/.config/rook/config.yaml` from the template on first run and opens it in
-`$EDITOR`, where you set the backend, model and `authorization` (your provider
-key). The file lives on the persistent `~/.config/rook` volume and rook reads it
-directly. The panel shows `ROOK · RUN rook config` until a key is present.
+Rook talks straight to a model provider, so a run needs that provider's key.
+Rook defaults to the `zai` backend running `glm-5.2`, which reads `ZAI_API_KEY`.
+Setup is the built-in **`rook config`**: it seeds `~/.config/rook/config.yaml`
+from the template on first run and opens it in `$EDITOR`, where you set the
+backend, model and `api_key`. The file lives on the persistent `~/.config/rook`
+volume and rook reads it directly. The panel shows `ROOK · RUN rook config`
+until a key is present.
 
-The same file configures per-model keys and the ChatBotKit backends (`--backend
-cbk` with `api_secret`, or `CBK_API_SECRET` passed via the container
-environment).
+A key can equally be passed through the container environment - `make run`
+forwards every provider variable set on the host.
 
 ## A future benchmark variant
 

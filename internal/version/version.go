@@ -21,7 +21,7 @@ var (
 
 const (
 	// releaseRepo is the GitHub owner/repo used to check for new releases.
-	releaseRepo = "chatbotkit/rook"
+	releaseRepo = "pdparchitect/rook"
 
 	// checkTimeout limits how long the HTTP call to GitHub may take.
 	checkTimeout = 4 * time.Second

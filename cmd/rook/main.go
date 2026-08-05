@@ -1,13 +1,13 @@
 // Command rook is an AI bug-hunting harness for vulnerability research, bug
-// hunting and source-code auditing. It is built on the ChatBotKit Go SDK and
-// ships with an embedded library of security skills.
+// hunting and source-code auditing. It runs the zot autonomous engine in-process
+// and ships with an embedded library of security skills.
 //
 // Usage:
 //
 //	rook config                                 # edit the config (backend, model, key)
-//	rook "Audit the HTTP handlers in ./server for injection bugs"
+//	export ZAI_API_KEY="..."; rook "Audit the HTTP handlers in ./server for injection bugs"
 //	rook --scope "repo: ./server, no network" "Hunt for auth bypasses"
-//	export CBK_API_SECRET="..."; rook --backend cbk "..."   # ChatBotKit backend
+//	rook --backend openai "..."                 # any built-in provider
 //	rook version
 //
 // Configuration is layered: built-in defaults < config file < ROOK_* env vars <
@@ -29,26 +29,35 @@ import (
 	"syscall"
 
 	"github.com/joho/godotenv"
+
+	"github.com/pdparchitect/rook/internal/buildinfo"
 	"github.com/spf13/pflag"
 
-	rook "github.com/chatbotkit/rook"
-	"github.com/chatbotkit/rook/internal/agent"
-	"github.com/chatbotkit/rook/internal/config"
-	"github.com/chatbotkit/rook/internal/version"
+	rook "github.com/pdparchitect/rook"
+	"github.com/pdparchitect/rook/internal/agent"
+	"github.com/pdparchitect/rook/internal/config"
+	"github.com/pdparchitect/rook/internal/version"
 )
 
 func main() {
-	// A .env in the working directory is a convenience for populating the
-	// environment (e.g. CBK_API_SECRET); the config file is the primary surface.
-	godotenv.Load()
+	// A .env in the working directory is read only on a developer build. Rook
+	// runs shell commands against targets with a provider key in the process, so
+	// a released binary must not take credentials from whatever directory it was
+	// pointed at - a stray committed .env in the code under review would
+	// otherwise reach the process about to run commands against it. Released
+	// builds take credentials from the config file and the real environment.
+	if buildinfo.Dev {
+		godotenv.Load()
+	}
 
 	flags := pflag.NewFlagSet("rook", pflag.ContinueOnError)
 	configPath := flags.String("config", "", "path to the config file (default: $ROOK_CONFIG or ~/.config/rook/config.yaml)")
-	backend := flags.String("backend", "", "backend to target: relay (default), cbk, or chatbotkit")
+	backend := flags.String("backend", "", "backend to target: a provider such as zai (default), openai, anthropic, groq, ollama, or a backend named in the config")
 	model := flags.String("model", "", "model the agent reasons with (overrides config)")
 	maxIter := flags.Int("max-iterations", 0, "maximum agent iterations before forced stop (overrides config)")
 	scope := flags.String("scope", "", "authorization boundary (hosts, repos, paths) the agent must stay within")
 	scopeFile := flags.String("scope-file", "", "read the authorization scope from a file")
+	runDir := flags.String("run-dir", "", "base directory for per-run artifacts (default: $ROOK_RUN_DIR or ~/.local/state/rook/runs)")
 	verbose := flags.BoolP("verbose", "v", false, "stream the agent's reasoning tokens to stdout")
 	showVersion := flags.BoolP("version", "V", false, "print version and exit")
 
@@ -116,7 +125,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	selected, resolvedModel, resolvedMaxIter, err := cfg.Selected()
+	selected, err := cfg.Selected()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -132,22 +141,29 @@ func main() {
 		resolvedScope = string(data)
 	}
 
+	// Every run writes artifacts (status + log) under a base run directory:
+	// flag, then config, then the built-in XDG default.
+	resolvedRunDir := firstNonEmpty(*runDir, cfg.RunDir, config.DefaultRunDir())
+	resolvedRunDir = expandPath(resolvedRunDir)
+
 	// Strip backend credentials from the environment before the agent runs, so
 	// the commands it executes against a target cannot read them. The resolved
-	// secret is still handed to the SDK client below.
+	// key is still handed to the client below.
 	config.ScrubBackendSecrets(cfg)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
 	code, err := agent.Run(ctx, agent.Config{
-		APISecret:     selected.APISecret,
+		Provider:      selected.Provider,
+		APIKey:        selected.APIKey,
 		BaseURL:       selected.BaseURL,
-		Model:         resolvedModel,
-		MaxIterations: resolvedMaxIter,
+		Model:         selected.Model,
+		MaxIterations: selected.MaxIterations,
 		Task:          task,
 		Scope:         resolvedScope,
 		Verbose:       *verbose,
+		RunDir:        resolvedRunDir,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "\nError: %v\n", err)
@@ -160,7 +176,9 @@ func main() {
 }
 
 func printVersion() {
-	fmt.Printf("rook %s\n", version.Version)
+	// the build kind is on the version line because it changes what the binary
+	// reads from disk: "why is my .env ignored" should be answerable from here.
+	fmt.Printf("rook %s (%s)\n", version.Version, buildinfo.Kind)
 	notifyUpdate()
 }
 
@@ -208,6 +226,22 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+// expandPath expands a leading ~ and any $ENV references in a path.
+func expandPath(p string) string {
+	p = os.ExpandEnv(p)
+	switch {
+	case p == "~":
+		if h, err := os.UserHomeDir(); err == nil {
+			return h
+		}
+	case strings.HasPrefix(p, "~/"):
+		if h, err := os.UserHomeDir(); err == nil {
+			return filepath.Join(h, p[2:])
+		}
+	}
+	return p
 }
 
 // notifyUpdate prints a one-line notice to stderr when a newer release exists.

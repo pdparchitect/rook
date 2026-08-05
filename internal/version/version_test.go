@@ -102,11 +102,11 @@ func TestFormatUpdateNotice(t *testing.T) {
 	r = &CheckResult{
 		Current:   "v0.1.0",
 		Latest:    "v0.2.0",
-		UpdateURL: "https://github.com/chatbotkit/rook/releases/tag/v0.2.0",
+		UpdateURL: "https://github.com/pdparchitect/rook/releases/tag/v0.2.0",
 		Outdated:  true,
 	}
 	notice := FormatUpdateNotice(r)
-	for _, want := range []string{"v0.1.0", "v0.2.0", "https://github.com/chatbotkit/rook"} {
+	for _, want := range []string{"v0.1.0", "v0.2.0", "https://github.com/pdparchitect/rook"} {
 		if !strings.Contains(notice, want) {
 			t.Errorf("notice should contain %q, got: %q", want, notice)
 		}

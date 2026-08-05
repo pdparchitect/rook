@@ -21,11 +21,26 @@ func DefaultConfigPath() string {
 	return filepath.Join(xdgConfigHome(), "rook", "config.yaml")
 }
 
+// DefaultRunDir returns the base directory for per-run artifacts:
+//
+//  1. $XDG_STATE_HOME/rook/runs (if XDG_STATE_HOME is set)
+//  2. ~/.local/state/rook/runs
+func DefaultRunDir() string {
+	return filepath.Join(xdgStateHome(), "rook", "runs")
+}
+
 func xdgConfigHome() string {
 	if dir := strings.TrimSpace(os.Getenv("XDG_CONFIG_HOME")); dir != "" {
 		return dir
 	}
 	return filepath.Join(homeDir(), ".config")
+}
+
+func xdgStateHome() string {
+	if dir := strings.TrimSpace(os.Getenv("XDG_STATE_HOME")); dir != "" {
+		return dir
+	}
+	return filepath.Join(homeDir(), ".local", "state")
 }
 
 func homeDir() string {

@@ -3,269 +3,389 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
+	"sort"
+	"strings"
 	"testing"
 )
 
 func writeConfig(t *testing.T, body string) string {
 	t.Helper()
+
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
+
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
+
 	return path
 }
 
-// The default backend is the CBK relay. The relay authenticates the provider
-// per model, inside the model string; there is no RELAY_API_KEY - a backend-level
-// authorization set in config (pointing at the user's own provider key) is
-// composed onto the default model.
-func TestDefaultsToRelayBackend(t *testing.T) {
-	t.Setenv("MY_PROVIDER_KEY", "sk-provider")
-	path := writeConfig(t, `
-default_backend: relay
-backends:
-  relay:
-    authorization: $MY_PROVIDER_KEY
-`)
-	cfg, err := Load(path)
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if cfg.DefaultBackend != "relay" {
-		t.Errorf("default backend = %q, want relay", cfg.DefaultBackend)
-	}
+// isolate stops a developer's real environment leaking into a test: the config
+// seeds credentials from provider variables, and one exported in the shell
+// would silently satisfy a case meant to fail.
+func isolate(t *testing.T) {
+	t.Helper()
 
-	backend, model, maxIter, err := cfg.Selected()
-	if err != nil {
-		t.Fatalf("Selected: %v", err)
-	}
-	if backend.BaseURL != "https://relay.cbk.ai" {
-		t.Errorf("relay base_url = %q, want https://relay.cbk.ai", backend.BaseURL)
-	}
-	// Relay uses no Bearer secret; the credential rides in the model string.
-	if backend.APISecret != "" {
-		t.Errorf("relay APISecret = %q, want empty", backend.APISecret)
-	}
-	want := DefaultModel + "/authorization=sk-provider"
-	if model != want {
-		t.Errorf("model = %q, want %q", model, want)
-	}
-	if maxIter != DefaultMaxIterations {
-		t.Errorf("max iterations = %d, want %d", maxIter, DefaultMaxIterations)
-	}
-}
-
-// Per-model authorization: each model carries its own provider key, composed
-// into the model string. This is the case a single backend key cannot express.
-func TestRelayPerModelAuthorization(t *testing.T) {
-	t.Setenv("OPENAI_API_KEY", "sk-openai")
-	t.Setenv("MISTRAL_API_KEY", "sk-mistral")
-	path := writeConfig(t, `
-agent:
-  model: gpt-4
-default_backend: relay
-backends:
-  relay:
-    models:
-      gpt-4:
-        authorization: $OPENAI_API_KEY
-      mistral-large:
-        authorization: $MISTRAL_API_KEY
-`)
-	cfg, err := Load(path)
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	_, model, _, err := cfg.Selected()
-	if err != nil {
-		t.Fatalf("Selected: %v", err)
-	}
-	if model != "gpt-4/authorization=sk-openai" {
-		t.Errorf("model = %q, want gpt-4/authorization=sk-openai", model)
-	}
-}
-
-// A key already inlined into the model name is respected, not double-composed.
-func TestRelayInlineAuthorizationRespected(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	path := writeConfig(t, `
-agent:
-  model: 'gpt-4/authorization=sk-inline'
-default_backend: relay
-`)
-	cfg, err := Load(path)
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	_, model, _, err := cfg.Selected()
-	if err != nil {
-		t.Fatalf("Selected: %v", err)
-	}
-	if model != "gpt-4/authorization=sk-inline" {
-		t.Errorf("model = %q, want it unchanged", model)
+	t.Setenv("ROOK_CONFIG", "")
+
+	for name := range builtinBackends {
+		if env := builtinBackends[name].secretEnv; env != "" {
+			t.Setenv(env, "")
+		}
 	}
 }
 
-// No provider key anywhere for the relay is a clear, actionable error.
-func TestRelayErrorsWithoutAuthorization(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-
-	cfg, err := Load("")
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if _, _, _, err := cfg.Selected(); err == nil {
-		t.Fatal("expected an error when the relay model has no authorization")
-	}
-}
-
-// The Bearer backends resolve to their endpoints and read their own credential.
-func TestBearerBackendEndpoints(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Setenv("CBK_API_SECRET", "cbk-key")
-	t.Setenv("CHATBOTKIT_API_SECRET", "chatbotkit-key")
+// Exporting one provider variable is the whole setup. A run with no config file
+// at all has to work, or the tool is unusable in a container.
+func TestAProviderKeyAloneIsEnough(t *testing.T) {
+	isolate(t)
+	t.Setenv("ZAI_API_KEY", "sk-zai")
 
 	cfg, err := Load("")
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
 
-	cases := map[string]struct{ url, secret string }{
-		"cbk":        {"https://api.cbk.ai", "cbk-key"},
-		"chatbotkit": {"https://api.chatbotkit.com", "chatbotkit-key"},
+	selection, err := cfg.Selected()
+	if err != nil {
+		t.Fatalf("Selected: %v", err)
 	}
-	for name, want := range cases {
-		cfg.DefaultBackend = name
-		backend, model, _, err := cfg.Selected()
-		if err != nil {
-			t.Fatalf("Selected(%s): %v", name, err)
-		}
-		if backend.BaseURL != want.url {
-			t.Errorf("%s base_url = %q, want %q", name, backend.BaseURL, want.url)
-		}
-		if backend.APISecret != want.secret {
-			t.Errorf("%s secret = %q, want %q", name, backend.APISecret, want.secret)
-		}
-		// Bearer backends do not touch the model string.
-		if model != DefaultModel {
-			t.Errorf("%s model = %q, want %q unchanged", name, model, DefaultModel)
-		}
+
+	if selection.Provider != "zai" || selection.APIKey != "sk-zai" {
+		t.Errorf("selection = %+v", selection)
+	}
+
+	if selection.Model != DefaultModel {
+		t.Errorf("model = %q, want %q", selection.Model, DefaultModel)
 	}
 }
 
-// A missing Bearer credential for a ChatBotKit backend is a clear error.
-func TestBearerErrorsWithoutSecret(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Setenv("CBK_API_SECRET", "")
+// The default model must be one the default backend actually serves. A pair
+// that cannot talk to each other fails as a provider error mid-run rather than
+// as a configuration error before it starts.
+func TestTheDefaultPairAgrees(t *testing.T) {
+	if _, ok := builtinBackends[DefaultBackend]; !ok {
+		t.Fatalf("the default backend %q is not built in", DefaultBackend)
+	}
+
+	// glm-5.2 is Z.AI's model; if either default moves, the other has to follow
+	if DefaultBackend != "zai" || DefaultModel != "glm-5.2" {
+		t.Errorf("defaults are %s/%s - check they still serve each other",
+			DefaultBackend, DefaultModel)
+	}
+}
+
+// The built-in backends are exactly the providers Rook speaks to. Pinning the
+// whole set catches an accidental addition and an accidental removal with one
+// assertion.
+func TestBuiltinBackendsAreExactlyTheProviders(t *testing.T) {
+	isolate(t)
 
 	cfg, err := Load("")
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	cfg.DefaultBackend = "cbk"
-	if _, _, _, err := cfg.Selected(); err == nil {
-		t.Fatal("expected an error when the cbk backend has no secret")
+
+	seeded := make([]string, 0, len(cfg.Backends))
+
+	for name := range cfg.Backends {
+		seeded = append(seeded, name)
+	}
+
+	sort.Strings(seeded)
+
+	want := []string{
+		"anthropic", "cerebras", "deepseek", "groq", "mistral", "moonshot",
+		"ollama", "openai", "openrouter", "qwen", "together", "xai", "zai",
+	}
+
+	if !reflect.DeepEqual(seeded, want) {
+		t.Errorf("built-in backends:\n got %v\nwant %v", seeded, want)
+	}
+
+	for _, name := range seeded {
+		if BackendProvider(name, cfg.Backends[name]) == "" {
+			t.Errorf("backend %q names no provider", name)
+		}
 	}
 }
 
-// api_secret / authorization in the file may name an env var with $VAR.
-func TestSecretEnvReference(t *testing.T) {
-	t.Setenv("MY_CBK_KEY", "sk-from-env")
+// A backend named after a provider needs no further configuration - the name is
+// the provider.
+func TestTheBackendNameInfersTheProvider(t *testing.T) {
+	tests := []struct {
+		name    string
+		backend Backend
+		want    string
+	}{
+		{name: "groq", want: "groq"},
+		{name: "openai", want: "openai"},
+		{name: "mygateway", backend: Backend{Provider: "custom"}, want: "custom"},
+		{name: "mygateway", want: ""},
+		{name: "openai", backend: Backend{Provider: "anthropic"}, want: "anthropic"},
+	}
+
+	for _, test := range tests {
+		if got := BackendProvider(test.name, test.backend); got != test.want {
+			t.Errorf("BackendProvider(%q, %+v) = %q, want %q",
+				test.name, test.backend, got, test.want)
+		}
+	}
+}
+
+// A missing credential is reported before any request, so the operator sees a
+// configuration error rather than a 401 halfway through a run.
+func TestAMissingKeyIsReportedUpFront(t *testing.T) {
+	isolate(t)
+
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	_, err = cfg.Selected()
+	if err == nil {
+		t.Fatal("a backend with no credential must be rejected")
+	}
+
+	// the message has to name the variable to export
+	if !strings.Contains(err.Error(), "ZAI_API_KEY") {
+		t.Errorf("error = %q, want it to name the variable", err)
+	}
+}
+
+// Ollama is local and unauthenticated. Demanding a key would make the one
+// backend that never sends data off the machine the hardest to use - which is
+// backwards for security work on sensitive material.
+func TestOllamaNeedsNoKey(t *testing.T) {
+	isolate(t)
+
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	cfg.DefaultBackend = "ollama"
+
+	selection, err := cfg.Selected()
+	if err != nil {
+		t.Fatalf("Selected: %v", err)
+	}
+
+	if selection.Provider != "ollama" {
+		t.Errorf("provider = %q, want ollama", selection.Provider)
+	}
+}
+
+// A backend that names no provider cannot resolve, and says so.
+func TestAnUnknownBackendIsRejected(t *testing.T) {
+	isolate(t)
+
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	cfg.DefaultBackend = "nowhere"
+
+	if _, err := cfg.Selected(); err == nil {
+		t.Fatal("an unconfigured backend must be rejected")
+	}
+
+	cfg.Backends["nowhere"] = Backend{APIKey: "sk-test"}
+
+	_, err = cfg.Selected()
+	if err == nil {
+		t.Fatal("a backend naming no provider must be rejected")
+	}
+
+	if !strings.Contains(err.Error(), "provider") {
+		t.Errorf("error = %q, want it to name what is missing", err)
+	}
+}
+
+// A `$VAR` reference is how a key stays out of the config file.
+func TestAnEnvReferenceIsExpanded(t *testing.T) {
+	isolate(t)
+	t.Setenv("MY_PROVIDER_KEY", "sk-from-env")
+
 	path := writeConfig(t, `
-default_backend: cbk
+default_backend: openai
 backends:
-  cbk:
-    api_secret: '$MY_CBK_KEY'
+  openai:
+    api_key: '$MY_PROVIDER_KEY'
 `)
+
 	cfg, err := Load(path)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if got := cfg.Backends["cbk"].APISecret; got != "sk-from-env" {
-		t.Errorf("resolved secret = %q, want sk-from-env", got)
+
+	if got := cfg.Backends["openai"].APIKey; got != "sk-from-env" {
+		t.Errorf("key = %q, want the expanded value", got)
+	}
+
+	path = writeConfig(t, `
+backends:
+  openai:
+    api_key: '${MY_PROVIDER_KEY}'
+`)
+
+	cfg, err = Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if got := cfg.Backends["openai"].APIKey; got != "sk-from-env" {
+		t.Errorf("braced key = %q", got)
+	}
+}
+
+// An unset variable resolves to nothing, so the run fails with "no API key"
+// rather than sending the literal text "$MY_KEY" to the provider.
+func TestAnUnsetEnvReferenceResolvesToNothing(t *testing.T) {
+	isolate(t)
+	t.Setenv("ROOK_TEST_UNSET", "")
+
+	path := writeConfig(t, `
+default_backend: openai
+backends:
+  openai:
+    api_key: '$ROOK_TEST_UNSET'
+`)
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if got := cfg.Backends["openai"].APIKey; got != "" {
+		t.Errorf("key = %q, want nothing", got)
 	}
 }
 
 // Env vars override the file (defaults < file < env). CLI flags override env,
 // but that layer lives in main.
 func TestEnvOverridesFile(t *testing.T) {
-	t.Setenv("CBK_API_SECRET", "k")
+	isolate(t)
+	t.Setenv("GROQ_API_KEY", "sk-groq")
+
 	path := writeConfig(t, `
 agent:
   model: from-file
-default_backend: relay
+default_backend: openai
 `)
+
 	t.Setenv("ROOK_AGENT_MODEL", "from-env")
-	t.Setenv("ROOK_DEFAULT_BACKEND", "cbk")
+	t.Setenv("ROOK_DEFAULT_BACKEND", "groq")
 
 	cfg, err := Load(path)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
+
 	if cfg.Agent.Model != "from-env" {
-		t.Errorf("model = %q, want from-env (env overrides file)", cfg.Agent.Model)
+		t.Errorf("model = %q, want from-env", cfg.Agent.Model)
 	}
-	if cfg.DefaultBackend != "cbk" {
-		t.Errorf("default backend = %q, want cbk (env overrides file)", cfg.DefaultBackend)
+
+	if cfg.DefaultBackend != "groq" {
+		t.Errorf("default backend = %q, want groq", cfg.DefaultBackend)
 	}
 }
 
-// A custom model entry aliases a real id, caps iterations, and carries auth.
-func TestCustomModelAlias(t *testing.T) {
+// A custom model entry aliases a real id, caps iterations, and may carry its own
+// provider and credential - which is what lets one gateway front several.
+func TestCustomModelEntry(t *testing.T) {
+	isolate(t)
 	t.Setenv("OPENAI_API_KEY", "sk-openai")
+
 	path := writeConfig(t, `
 agent:
   model: fast
-default_backend: relay
+default_backend: mygateway
 backends:
-  relay:
+  mygateway:
+    provider: custom
+    base_url: 'https://gateway.example.com/v1'
+    api_key: sk-gateway
     models:
       fast:
         model: gpt-5
         max_iterations: 50
-        authorization: $OPENAI_API_KEY
+        provider: openai
+        api_key: $OPENAI_API_KEY
 `)
+
 	cfg, err := Load(path)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	_, model, maxIter, err := cfg.Selected()
+
+	selection, err := cfg.Selected()
 	if err != nil {
 		t.Fatalf("Selected: %v", err)
 	}
-	if model != "gpt-5/authorization=sk-openai" {
-		t.Errorf("model = %q, want gpt-5/authorization=sk-openai", model)
+
+	if selection.Model != "gpt-5" {
+		t.Errorf("model = %q, want the aliased id", selection.Model)
 	}
-	if maxIter != 50 {
-		t.Errorf("max iterations = %d, want 50 (from custom model)", maxIter)
+
+	if selection.MaxIterations != 50 {
+		t.Errorf("max iterations = %d, want 50", selection.MaxIterations)
+	}
+
+	if selection.Provider != "openai" || selection.APIKey != "sk-openai" {
+		t.Errorf("the model's own provider and key must win: %+v", selection)
+	}
+
+	if selection.BaseURL != "https://gateway.example.com/v1" {
+		t.Errorf("base URL = %q, want the backend's", selection.BaseURL)
 	}
 }
 
-// Scrubbing removes every resolved credential - Bearer secrets and provider
-// authorizations, backend-level and per-model - from the environment.
+// Scrubbing removes every resolved credential from the environment. An
+// offensive-security agent runs commands against targets, and a provider key in
+// one of those commands' environment is a key that can leave with it.
 func TestScrubBackendSecrets(t *testing.T) {
+	isolate(t)
 	t.Setenv("ZAI_API_KEY", "sk-zai")
 	t.Setenv("OPENAI_API_KEY", "sk-openai")
+	t.Setenv("ROOK_TEST_UNRELATED", "keep-me")
+
 	path := writeConfig(t, `
-default_backend: relay
+default_backend: zai
 backends:
-  relay:
-    authorization: $ZAI_API_KEY
+  zai:
+    api_key: $ZAI_API_KEY
     models:
       gpt-4:
-        authorization: $OPENAI_API_KEY
+        api_key: $OPENAI_API_KEY
 `)
+
 	cfg, err := Load(path)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
+
 	ScrubBackendSecrets(cfg)
 
-	if v := os.Getenv("ZAI_API_KEY"); v != "" {
-		t.Errorf("ZAI_API_KEY still present after scrub: %q", v)
+	if got := os.Getenv("ZAI_API_KEY"); got != "" {
+		t.Errorf("ZAI_API_KEY survived scrubbing: %q", got)
 	}
-	if v := os.Getenv("OPENAI_API_KEY"); v != "" {
-		t.Errorf("OPENAI_API_KEY still present after scrub: %q", v)
+
+	if got := os.Getenv("OPENAI_API_KEY"); got != "" {
+		t.Errorf("the per-model key survived scrubbing: %q", got)
+	}
+
+	if got := os.Getenv("ROOK_TEST_UNRELATED"); got != "keep-me" {
+		t.Errorf("an unrelated variable was scrubbed: %q", got)
+	}
+
+	// the config keeps what the client needs
+	if cfg.Backends["zai"].APIKey != "sk-zai" {
+		t.Error("scrubbing must not empty the resolved config")
 	}
 }
