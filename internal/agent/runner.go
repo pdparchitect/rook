@@ -20,8 +20,11 @@ import (
 
 // Config controls a single autonomous run.
 type Config struct {
-	// APISecret is the ChatBotKit API token.
+	// APISecret is the credential for the selected backend.
 	APISecret string
+	// BaseURL is the API endpoint for the selected backend. Empty uses the SDK
+	// default (the ChatBotKit API).
+	BaseURL string
 	// Model is the model the agent reasons with (e.g. "gpt-4o").
 	Model string
 	// MaxIterations bounds how many tool-using turns the agent may take
@@ -67,7 +70,7 @@ func Run(ctx context.Context, cfg Config) (int, error) {
 
 	backstory := fmt.Sprintf(config.Backstory, scope)
 
-	client := sdk.New(sdk.Options{Secret: cfg.APISecret})
+	client := sdk.New(sdk.Options{Secret: cfg.APISecret, BaseURL: cfg.BaseURL})
 
 	tools := sdkagent.DefaultTools()
 

@@ -1,0 +1,12 @@
+# Build context for image/desktop/Dockerfile is the repository root: the
+# compile stage needs the Go module and embedded skills, and the product stage
+# needs image/desktop/overlay and theme. Exclude only what must never enter the
+# context - most importantly go.work, which points at a local ../go-sdk checkout
+# that does not exist inside the build.
+.git
+.github
+dist
+go.work
+go.work.sum
+/rook
+*.tar.gz

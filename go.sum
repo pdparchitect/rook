@@ -1,5 +1,5 @@
-github.com/chatbotkit/go-sdk v0.1.1 h1:luefnGxlVH5zjGskwt8aYRxOIusnRhnl2o9qaM7j088=
-github.com/chatbotkit/go-sdk v0.1.1/go.mod h1:u9QxNKUqhls4OOPMuVE0i/Q4wTJMgBARKw+CcQIeg00=
+github.com/chatbotkit/go-sdk v0.4.0 h1:u+nOn+sxxcFfKbGLGehxupg0D4Hp65AdlYGtJXCmSYA=
+github.com/chatbotkit/go-sdk v0.4.0/go.mod h1:u9QxNKUqhls4OOPMuVE0i/Q4wTJMgBARKw+CcQIeg00=
 github.com/joho/godotenv v1.5.1 h1:7eLL/+HRGLY0ldzfGMeQkb7vMd0as4CfYvUVzLqw0N0=
 github.com/joho/godotenv v1.5.1/go.mod h1:f4LDr5Voq0i2e/R5DDNOoa2zzDfwtkZa6DnEwAbqwq4=
 github.com/spf13/pflag v1.0.5 h1:iy+VFUOCP1a+8yFto/drg2CJ5u0yRoB7fZw3DKv/JXA=

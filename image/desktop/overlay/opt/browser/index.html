@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Rook</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --chrome: #16171c;
+        --canvas: #0e0f13;
+        --edge: #2a2c34;
+        --white: #f5f6f8;
+        --soft: #c4c7d0;
+        --muted: #6e7280;
+        --crimson: #de3b4b;
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        padding: 40px;
+        color: var(--soft);
+        background:
+          radial-gradient(60% 60% at 12% 96%, rgba(222, 59, 75, 0.28), transparent 60%),
+          radial-gradient(58% 56% at 92% 6%, rgba(42, 44, 52, 0.6), transparent 62%),
+          #0e0f13;
+      }
+
+      main {
+        width: min(720px, 100%);
+        padding: 44px 44px 38px;
+        background: var(--canvas);
+        border: 1px solid var(--white);
+        border-radius: 10px;
+      }
+
+      .wordmark {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+      }
+
+      .wordmark svg { width: 34px; height: 34px; flex: none; }
+
+      h1 {
+        margin: 0;
+        font-size: clamp(30px, 5vw, 44px);
+        font-weight: 600;
+        letter-spacing: -0.015em;
+        color: var(--white);
+      }
+
+      .standfirst {
+        margin: 16px 0 30px;
+        max-width: 42ch;
+        font-size: 16px;
+        color: var(--muted);
+      }
+
+      .warn { color: var(--crimson); }
+
+      hr {
+        margin: 0 0 24px;
+        border: 0;
+        border-top: 1px solid var(--edge);
+      }
+
+      dl {
+        margin: 0;
+        display: grid;
+        grid-template-columns: max-content 1fr;
+        gap: 12px 28px;
+        font-family: 'DejaVu Sans Mono', monospace;
+        font-size: 13px;
+      }
+
+      dt {
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.16em;
+        font-size: 11px;
+        padding-top: 2px;
+      }
+
+      dd { margin: 0; color: var(--soft); }
+
+      dd b { color: var(--crimson); font-weight: 400; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="wordmark">
+        <svg viewBox="0 0 100 100" role="img" aria-label="Rook">
+          <g fill="#F5F6F8">
+            <rect x="28" y="24" width="11" height="16" />
+            <rect x="44.5" y="24" width="11" height="16" />
+            <rect x="61" y="24" width="11" height="16" />
+            <rect x="28" y="37" width="44" height="8" />
+            <path d="M34 45 H66 L70 71 H30 Z" />
+            <rect x="26" y="69" width="48" height="8" rx="2" />
+            <rect x="22" y="77" width="56" height="7" rx="2.5" />
+          </g>
+          <rect x="47.5" y="50" width="5" height="16" rx="2.5" fill="#DE3B4B" />
+        </svg>
+        <h1>rook</h1>
+      </div>
+
+      <p class="standfirst">
+        An autonomous security agent that only reaches the workspace you gave it.
+        <span class="warn">Authorized use only — always pass an explicit --scope.</span>
+      </p>
+
+      <hr />
+
+      <dl>
+        <dt>Run</dt>
+        <dd>a terminal is open; drive <b>rook</b> from there</dd>
+        <dt>API key</dt>
+        <dd>run <b>rook-setup</b> once to save your ChatBotKit secret</dd>
+        <dt>Terminal</dt>
+        <dd><b>Control-Shift-G</b> opens another session</dd>
+        <dt>Workspace</dt>
+        <dd>/workspace</dd>
+      </dl>
+    </main>
+  </body>
+</html>

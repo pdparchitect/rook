@@ -1,0 +1,35 @@
+#!/bin/bash
+# desktop-selftest - product assertions run by the shared live smoke test.
+
+set -uo pipefail
+
+failures=0
+
+check() {
+    local label="$1"
+    shift
+    if "$@" >/dev/null 2>&1; then
+        echo "  ok   $label"
+    else
+        echo "  FAIL $label" >&2
+        failures=$((failures + 1))
+    fi
+}
+
+echo "rook selftest"
+
+check "Rook runs" rook version
+check "the workspace is writable" test -w /workspace
+# Rook is stateless; the one persisted path is its config dir (saved key + any
+# config.yaml) under ~/.config/rook.
+check "the config directory is writable" test -w "${HOME}/.config/rook"
+# The key export hook must be present, or a saved key never reaches `rook`.
+check "the key export hook is installed" test -r /etc/profile.d/rook-env.sh
+check "rook-setup is available" command -v rook-setup
+
+if [ "$failures" -gt 0 ]; then
+    echo "rook selftest: $failures failed" >&2
+    exit 1
+fi
+
+echo "rook selftest: Rook is ready"

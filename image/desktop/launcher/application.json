@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 2,
+  "id": "f8d4df7a-ff9d-4bdd-b0d3-7c04a1c4e371",
+  "slug": "rook",
+  "name": "Rook",
+  "publisher": "ChatBotKit",
+  "description": "A persistent browser desktop for Rook, an autonomous security agent for vulnerability research, bug hunting and source-code auditing. Drive it from a terminal in an isolated workspace it can only reach with your explicit scope.",
+  "tags": ["SECURITY", "TERMINAL", "AUTOMATION"],
+  "media": {
+    "icon": "icon.svg",
+    "cover": "screenshot.jpg",
+    "screenshots": [
+      {
+        "source": "screenshot.jpg",
+        "alt": "Rook running in its persistent, branded browser desktop"
+      }
+    ]
+  },
+  "interfaces": {
+    "desktop": {
+      "kind": "kasmweb",
+      "port": 6901,
+      "path": "/"
+    },
+    "health": {
+      "kind": "health",
+      "port": 6902,
+      "path": "/healthz"
+    },
+    "notifications": {
+      "kind": "notifications",
+      "port": 6902,
+      "path": "/notifications"
+    },
+    "preview": {
+      "kind": "preview",
+      "port": 6902,
+      "path": "/preview.jpg"
+    }
+  },
+  "memory": "4g",
+  "sharedMemory": "1g",
+  "environment": {},
+  "mounts": [
+    {
+      "name": "workspace",
+      "target": "/workspace"
+    },
+    {
+      "name": "private/rook",
+      "target": "/home/agent/.config/rook"
+    }
+  ]
+}

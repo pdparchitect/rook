@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="Rook">
+  <!-- Obsidian tile, a white rook piece, and one crimson arrow-slit: a
+       fortress that shoots back - the red-team signature in a single mark. -->
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1B1D24"/>
+      <stop offset="100%" stop-color="#0E0F13"/>
+    </linearGradient>
+  </defs>
+  <rect width="100" height="100" rx="22" fill="url(#tile)"/>
+  <g fill="#F5F6F8">
+    <!-- battlements -->
+    <rect x="28" y="26" width="11" height="15"/>
+    <rect x="44.5" y="26" width="11" height="15"/>
+    <rect x="61" y="26" width="11" height="15"/>
+    <!-- top band -->
+    <rect x="28" y="38" width="44" height="8"/>
+    <!-- tapered body -->
+    <path d="M34 46 H66 L70 70 H30 Z"/>
+    <!-- base plinth and foot -->
+    <rect x="26" y="68" width="48" height="8" rx="2"/>
+    <rect x="22" y="76" width="56" height="7" rx="2.5"/>
+  </g>
+  <!-- crimson arrow-slit -->
+  <rect x="47.5" y="50" width="5" height="15" rx="2.5" fill="#DE3B4B"/>
+</svg>

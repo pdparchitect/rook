@@ -1,0 +1,16 @@
+#!/bin/bash
+# desktop-welcome - the terminal the session opens on start.
+#
+# Rook takes a task per invocation rather than running as a persistent process,
+# so this is an interactive login shell in the workspace, greeted once, not
+# `exec rook`. The login shell picks up the saved API key from
+# /etc/profile.d/rook-env.sh; the inner interactive shell inherits it.
+
+set -euo pipefail
+
+exec kitty \
+    --title "${DESKTOP_TITLE:-Rook}" \
+    --override remember_window_size=no \
+    --override initial_window_width=110c \
+    --override initial_window_height=34c \
+    -e bash -lc 'cd /workspace && rook-greeting && exec bash -li'
