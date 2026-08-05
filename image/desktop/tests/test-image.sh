@@ -27,11 +27,12 @@ if grep -Eiq 'releases/download|ROOK_SHA256|ROOK_VERSION' "$dockerfile"; then
 fi
 grep -Fq 'go build' "$dockerfile"
 
-# The persistent config dir and the exported-key hook have to name the same
-# path, or a saved key never reaches rook.
+# The persistent config dir holds the config rook reads (including the relay
+# provider key `rook config` writes), so the Dockerfile must declare it.
 grep -Fq '/home/agent/.config/rook' "$dockerfile"
-grep -Fq '.config/rook/env' \
-    "$project_dir/overlay/etc/profile.d/rook-env.sh"
+# Setup is the built-in `rook config`, surfaced in the welcome greeting.
+grep -Fq 'rook config' \
+    "$project_dir/overlay/usr/local/bin/rook-greeting"
 
 # The application manifest must be valid JSON when a parser is available.
 manifest="$project_dir/launcher/application.json"

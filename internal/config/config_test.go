@@ -16,15 +16,19 @@ func writeConfig(t *testing.T, body string) string {
 	return path
 }
 
-// The whole point: no file, and the run targets the CBK relay. The relay
-// authenticates the provider per model, inside the model string, so a
-// backend-level RELAY_API_KEY is composed onto the default model.
+// The default backend is the CBK relay. The relay authenticates the provider
+// per model, inside the model string; there is no RELAY_API_KEY - a backend-level
+// authorization set in config (pointing at the user's own provider key) is
+// composed onto the default model.
 func TestDefaultsToRelayBackend(t *testing.T) {
-	t.Setenv("ROOK_CONFIG", "")
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir()) // ensure no real config is found
-	t.Setenv("RELAY_API_KEY", "relay-key")
-
-	cfg, err := Load("")
+	t.Setenv("MY_PROVIDER_KEY", "sk-provider")
+	path := writeConfig(t, `
+default_backend: relay
+backends:
+  relay:
+    authorization: $MY_PROVIDER_KEY
+`)
+	cfg, err := Load(path)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -43,7 +47,7 @@ func TestDefaultsToRelayBackend(t *testing.T) {
 	if backend.APISecret != "" {
 		t.Errorf("relay APISecret = %q, want empty", backend.APISecret)
 	}
-	want := DefaultModel + "/authorization=relay-key"
+	want := DefaultModel + "/authorization=sk-provider"
 	if model != want {
 		t.Errorf("model = %q, want %q", model, want)
 	}
@@ -106,7 +110,6 @@ default_backend: relay
 // No provider key anywhere for the relay is a clear, actionable error.
 func TestRelayErrorsWithoutAuthorization(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Setenv("RELAY_API_KEY", "")
 
 	cfg, err := Load("")
 	if err != nil {
@@ -242,12 +245,13 @@ backends:
 // Scrubbing removes every resolved credential - Bearer secrets and provider
 // authorizations, backend-level and per-model - from the environment.
 func TestScrubBackendSecrets(t *testing.T) {
-	t.Setenv("RELAY_API_KEY", "relay-default")
+	t.Setenv("ZAI_API_KEY", "sk-zai")
 	t.Setenv("OPENAI_API_KEY", "sk-openai")
 	path := writeConfig(t, `
 default_backend: relay
 backends:
   relay:
+    authorization: $ZAI_API_KEY
     models:
       gpt-4:
         authorization: $OPENAI_API_KEY
@@ -258,8 +262,8 @@ backends:
 	}
 	ScrubBackendSecrets(cfg)
 
-	if v := os.Getenv("RELAY_API_KEY"); v != "" {
-		t.Errorf("RELAY_API_KEY still present after scrub: %q", v)
+	if v := os.Getenv("ZAI_API_KEY"); v != "" {
+		t.Errorf("ZAI_API_KEY still present after scrub: %q", v)
 	}
 	if v := os.Getenv("OPENAI_API_KEY"); v != "" {
 		t.Errorf("OPENAI_API_KEY still present after scrub: %q", v)

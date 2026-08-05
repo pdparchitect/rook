@@ -14,11 +14,11 @@ import (
 
 // DefaultModel is the model the agent reasons with when nothing overrides it.
 //
-// qwen-3.6-plus is a good agentic default: it supports tool/function calling,
-// has a 1M-token context window (well suited to reading large codebases during
-// source audits), and is inexpensive. Note the model must be one the selected
-// backend serves - a provider-style id under the "relay" backend.
-const DefaultModel = "qwen-3.6-plus"
+// glm-5.2 is a strong open model well suited to autonomous security work: large
+// context for reading codebases during source audits, solid tool use, and it is
+// open/permissive for offensive-security tasks. The model must be one the
+// selected backend serves (a ChatBotKit catalogue name).
+const DefaultModel = "glm-5.2"
 
 // DefaultMaxIterations bounds how many tool-using turns the agent may take
 // before it is forced to stop.
@@ -62,8 +62,9 @@ type Backend struct {
 	// "$ENV_VAR" references; for the built-ins it defaults from the environment.
 	APISecret string `yaml:"api_secret"`
 	// Authorization is the relay's default model credential, applied to every
-	// model on this backend that does not set its own. Supports "$ENV_VAR"; for
-	// the relay it defaults from RELAY_API_KEY. Ignored by the Bearer backends.
+	// model on this backend that does not set its own. Supports "$ENV_VAR" (point
+	// it at your own provider key). It has no built-in environment default.
+	// Ignored by the Bearer backends.
 	Authorization string `yaml:"authorization"`
 	// Models holds custom, named model configurations for this backend. When a
 	// run's model name matches a key here, that entry's settings take priority.
@@ -97,17 +98,18 @@ const (
 	authModelParam
 )
 
-// builtinBackends are the providers Rook ships with: their default endpoint,
-// how they authenticate, and the environment variable their credential falls
-// back to. "cbk" and "chatbotkit" are the same platform on its two hosts; the
-// credential value is the same but each reads its own brand-named variable.
+// builtinBackends are the providers Rook ships with: their default endpoint and
+// how they authenticate. The Bearer backends fall back to a brand-named
+// environment variable for their credential; the relay has no such default -
+// its per-model provider credential comes from config (or is inlined into the
+// model). "cbk" and "chatbotkit" are the same platform on its two hosts and
+// take the same credential value under their own variable.
 var builtinBackends = map[string]struct {
 	baseURL   string
 	style     authStyle
 	secretEnv string // Bearer credential fallback (authBearer)
-	authEnv   string // model-authorization fallback (authModelParam)
 }{
-	"relay":      {baseURL: "https://relay.cbk.ai", style: authModelParam, authEnv: "RELAY_API_KEY"},
+	"relay":      {baseURL: "https://relay.cbk.ai", style: authModelParam},
 	"cbk":        {baseURL: "https://api.cbk.ai", style: authBearer, secretEnv: "CBK_API_SECRET"},
 	"chatbotkit": {baseURL: "https://api.chatbotkit.com", style: authBearer, secretEnv: "CHATBOTKIT_API_SECRET"},
 }
@@ -194,11 +196,11 @@ func resolveBackends(cfg *Config) {
 			b.APISecret = strings.TrimSpace(os.Getenv(builtin.secretEnv))
 		}
 
-		// Backend-level model authorization (authModelParam backends).
+		// Backend-level model authorization (authModelParam backends). No
+		// environment default - the relay's provider credential comes from config
+		// (or is inlined into the model).
 		if a := strings.TrimSpace(b.Authorization); a != "" {
 			b.Authorization = resolveSecret(a)
-		} else if isBuiltin && builtin.authEnv != "" {
-			b.Authorization = strings.TrimSpace(os.Getenv(builtin.authEnv))
 		}
 
 		// Per-model authorization.
@@ -256,8 +258,8 @@ func (c Config) Selected() (backend Backend, model string, maxIterations int, er
 		if !strings.Contains(model, "/authorization=") {
 			if auth == "" {
 				return Backend{}, "", 0, fmt.Errorf(
-					"no authorization for model %q on backend %q (set authorization on the model or backend in config, %s in the environment, or inline it as %s/authorization=KEY)",
-					model, c.DefaultBackend, authEnvName(c.DefaultBackend), model)
+					"no authorization for model %q on backend %q (set authorization on the model or the backend in config, or inline it as %s/authorization=KEY)",
+					model, c.DefaultBackend, model)
 			}
 			model = model + "/authorization=" + auth
 		}
@@ -270,13 +272,6 @@ func (c Config) Selected() (backend Backend, model string, maxIterations int, er
 	}
 
 	return b, model, maxIterations, nil
-}
-
-func authEnvName(backend string) string {
-	if b, ok := builtinBackends[backend]; ok && b.authEnv != "" {
-		return b.authEnv
-	}
-	return "the backend authorization"
 }
 
 func secretEnvName(backend string) string {

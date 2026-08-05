@@ -54,10 +54,10 @@ COPY --from=build /out/rook /usr/local/bin/rook
 RUN chmod 0755 /usr/local/bin/rook && rook version
 
 # Rook is stateless - it needs only the API and a key. What is worth persisting
-# is its config: the saved backend key (so a researcher does not re-enter it
-# after every container replacement) and any ~/.config/rook/config.yaml. That
-# lives under the XDG config dir, kept out of the workspace files view; the key
-# is exported into every login shell by /etc/profile.d/rook-env.sh.
+# is its config: ~/.config/rook/config.yaml, where `rook config` stores the relay
+# provider key (so a researcher does not re-enter it after every container
+# replacement). rook reads it directly; it lives under the XDG config dir, kept
+# out of the workspace files view.
 RUN mkdir -p /home/agent/.config/rook && \
     chmod 0700 /home/agent/.config/rook && \
     chown -R agent:agent /home/agent
@@ -69,8 +69,7 @@ RUN chmod 0755 \
         /usr/local/bin/desktop-panel-status \
         /usr/local/bin/desktop-selftest \
         /usr/local/bin/desktop-welcome \
-        /usr/local/bin/rook-greeting \
-        /usr/local/bin/rook-setup
+        /usr/local/bin/rook-greeting
 
 # Recolour the inherited desktop chrome into Rook's palette: an obsidian canvas
 # and chrome with a single crimson accent - the red-team signature - carrying
