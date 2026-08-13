@@ -9,6 +9,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -20,6 +21,7 @@ import (
 	"github.com/pdparchitect/rook/internal/config"
 
 	"github.com/openzot/openzot/agent"
+	"github.com/openzot/openzot/tui"
 )
 
 // defaultMaxSettles bounds how many times the engine nudges the agent to record
@@ -27,6 +29,14 @@ import (
 // on; the value is generous because a security run legitimately produces a long
 // final report before it calls a terminal tool.
 const defaultMaxSettles = 20
+
+// rookTheme is Rook's identity in the shared viewer: red, distinct from zot's
+// neutral slate and pion's blue. Only the accent is themed - the semantic status
+// colours (running / done / failed) stay fixed across every embedding app.
+var rookTheme = tui.Theme{
+	Accent:    "#DC2626", // red-600
+	Secondary: "#F87171", // red-400
+}
 
 // Config controls a single autonomous run.
 type Config struct {
@@ -41,6 +51,9 @@ type Config struct {
 	BaseURL string
 	// Model is the model the agent reasons with, as the provider names it.
 	Model string
+	// Backend is the name of the backend the run targets (zai, openai, …), shown
+	// in the viewer's header. Presentation only; the client is already resolved.
+	Backend string
 	// MaxIterations bounds how many tool-using turns the agent may take
 	// before it is forced to stop.
 	MaxIterations int
@@ -87,7 +100,7 @@ func Run(ctx context.Context, cfg Config) (int, error) {
 		scope = "Authorized scope:\n" + scope
 	}
 
-	backstory := fmt.Sprintf(config.Backstory, scope)
+	instructions := fmt.Sprintf(config.Backstory, scope)
 
 	// The model is a property of the client rather than of a run: it decides
 	// which endpoint and which tokenizer the engine uses, so it has to be known
@@ -111,9 +124,9 @@ func Run(ctx context.Context, cfg Config) (int, error) {
 		tools["skill"] = *skillTool
 	}
 
-	events, errs := agent.ExecuteWithTools(ctx, client, agent.ExecuteWithToolsOptions{
+	opts := agent.ExecuteWithToolsOptions{
 		Messages:      []agent.Message{{Type: agent.TypeUser, Text: cfg.Task}},
-		Backstory:     backstory,
+		Instructions:  instructions,
 		Tools:         tools,
 		Skills:        skills,
 		MaxIterations: cfg.MaxIterations,
@@ -124,100 +137,59 @@ func Run(ctx context.Context, cfg Config) (int, error) {
 		// audit" actually means finished - so an unambiguous ending matters more
 		// here than almost anywhere. A positive value enables it.
 		MaxSettles: defaultMaxSettles,
-	})
+	}
 
 	// Every run writes artifacts - a live status snapshot and an append-only
 	// event log - into its own directory, so concurrent runs never collide and
-	// the desktop widget can render the active run.
-	var (
-		status *statusWriter
-		logf   *eventLogger
-	)
+	// the desktop widget can render the active run. The recorder is handed to the
+	// engine, which drives it from the same event stream that feeds the viewer:
+	// rendering and recording no longer share a hand-rolled loop here.
 	if cfg.RunDir != "" {
 		runDir := filepath.Join(cfg.RunDir, NewRunID())
 		if err := os.MkdirAll(runDir, 0o700); err == nil {
-			status = newStatusWriter(filepath.Join(runDir, "status.json"), Status{
-				State:         "running",
-				Model:         cfg.Model,
-				Scope:         strings.TrimSpace(cfg.Scope),
-				MaxIterations: cfg.MaxIterations,
-				StartedAt:     time.Now(),
-			})
-			logf = newEventLogger(filepath.Join(runDir, "events.jsonl"))
+			rec := &artifactRecorder{
+				status: newStatusWriter(filepath.Join(runDir, "status.json"), Status{
+					State:         "running",
+					Model:         cfg.Model,
+					Scope:         strings.TrimSpace(cfg.Scope),
+					MaxIterations: cfg.MaxIterations,
+					StartedAt:     time.Now(),
+				}),
+				log: newEventLogger(filepath.Join(runDir, "events.jsonl")),
+			}
+			defer rec.close()
+			opts.Recorder = rec
 			fmt.Fprintf(os.Stderr, "Run artifacts: %s\n\n", runDir)
 		}
 	}
-	defer logf.close()
 
-	exitCode := 0
+	workdir, _ := os.Getwd()
 
-	for event := range events {
-		switch e := event.(type) {
-		case agent.TokenAgentEvent:
-			if cfg.Verbose {
-				fmt.Print(e.Token)
-			}
-		case agent.IterationEvent:
-			fmt.Fprintf(os.Stderr, "\n--- Iteration %d ---\n", e.Iteration)
-			status.update(func(s *Status) { s.Iteration = e.Iteration })
-			logf.log("iteration", map[string]interface{}{"iteration": e.Iteration})
-		case agent.ToolCallStartEvent:
-			fmt.Fprintf(os.Stderr, "\n[%s] %v\n", e.Name, e.Args)
-			status.update(func(s *Status) {
-				s.Tool = e.Name
-				s.Action = summarizeArgs(e.Args)
-			})
-			logf.log("tool_start", map[string]interface{}{"tool": e.Name, "args": e.Args})
-		case agent.ToolCallEndEvent:
-			fmt.Fprintf(os.Stderr, "[%s] → %v\n", e.Name, truncate(e.Result))
-			logf.log("tool_end", map[string]interface{}{"tool": e.Name})
-		case agent.ToolCallErrorEvent:
-			fmt.Fprintf(os.Stderr, "[%s] error: %s\n", e.Name, e.Error)
-			logf.log("tool_error", map[string]interface{}{"tool": e.Name, "error": e.Error})
-		case agent.AgentExitEvent:
-			fmt.Fprintf(os.Stderr, "\n\n=== Agent exited with code %d ===\n", e.Code)
-			if e.Message != "" {
-				fmt.Fprintf(os.Stderr, "Message: %s\n", e.Message)
-			}
-			exitCode = e.Code
-			code := e.Code
-			status.update(func(s *Status) {
-				s.Tool = ""
-				s.Action = ""
-				s.ExitCode = &code
-				if code == 0 {
-					s.State = "done"
-				} else {
-					s.State = "error"
-				}
-			})
-			logf.log("exit", map[string]interface{}{"code": e.Code, "message": e.Message})
-		}
+	// The viewer is zot's shared TUI package, themed for Rook: a red identity, the
+	// "rook" name in the badge, and the run's iteration cap shown as progress. It
+	// renders the full-screen view on a terminal and streams plain text otherwise
+	// - or when --verbose is set, so the reasoning tokens stay in a pipe or log.
+	err = tui.Run(ctx, client, tui.Meta{
+		AppName:       "rook",
+		Task:          cfg.Task,
+		Model:         cfg.Model,
+		Backend:       cfg.Backend,
+		Workdir:       workdir,
+		Plain:         cfg.Verbose,
+		Theme:         rookTheme,
+		MaxIterations: cfg.MaxIterations,
+	}, opts)
+
+	// tui.Run reports an agent-declared failure (a _failure outcome) as an
+	// *AgentExitError: that is a completed run with a nonzero exit code, not a
+	// runner error, so surface the code with no error. Any other error is a real
+	// run failure (a provider or setup problem) and maps to exit 1.
+	var exitErr *tui.AgentExitError
+	if errors.As(err, &exitErr) {
+		return exitErr.Code, nil
 	}
-
-	if err := <-errs; err != nil {
-		status.update(func(s *Status) { s.State = "error" })
-		logf.log("error", map[string]interface{}{"error": err.Error()})
+	if err != nil {
 		return 1, err
 	}
-
-	return exitCode, nil
-}
-
-// truncate shortens long string fields in a tool result for terminal display.
-func truncate(result interface{}) interface{} {
-	m, ok := result.(map[string]interface{})
-	if !ok {
-		return result
-	}
-	const limit = 200
-	out := make(map[string]interface{}, len(m))
-	for k, v := range m {
-		if s, ok := v.(string); ok && len(s) > limit {
-			out[k] = s[:limit] + "… (truncated)"
-			continue
-		}
-		out[k] = v
-	}
-	return out
+	return 0, nil
 }

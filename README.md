@@ -16,6 +16,15 @@ researcher would.
 > against systems, code and services you own or are explicitly authorized to
 > test. Always pass an explicit `--scope`.
 
+## What you get
+
+Point Rook at a target within a scope and walk away. It works the problem the way
+a researcher would - enumerating, reading code, probing, and chaining what it
+finds - then hands back concrete findings: what the issue is, where it lives, how
+to reproduce it, and why it matters. Not a checklist of maybes, but the ones it
+worked through to a conclusion, with the evidence to back them - and a full log
+of everything it tried along the way.
+
 ## What can it do?
 
 A single binary, a plain-English task, and an explicit scope. Each example

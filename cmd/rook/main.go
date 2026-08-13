@@ -58,7 +58,7 @@ func main() {
 	scope := flags.String("scope", "", "authorization boundary (hosts, repos, paths) the agent must stay within")
 	scopeFile := flags.String("scope-file", "", "read the authorization scope from a file")
 	runDir := flags.String("run-dir", "", "base directory for per-run artifacts (default: $ROOK_RUN_DIR or ~/.local/state/rook/runs)")
-	verbose := flags.BoolP("verbose", "v", false, "stream the agent's reasoning tokens to stdout")
+	verbose := flags.BoolP("verbose", "v", false, "stream plain output (with reasoning tokens) instead of the full-screen viewer")
 	showVersion := flags.BoolP("version", "V", false, "print version and exit")
 
 	flags.Usage = func() {
@@ -159,6 +159,7 @@ func main() {
 		APIKey:        selected.APIKey,
 		BaseURL:       selected.BaseURL,
 		Model:         selected.Model,
+		Backend:       cfg.DefaultBackend,
 		MaxIterations: selected.MaxIterations,
 		Task:          task,
 		Scope:         resolvedScope,
