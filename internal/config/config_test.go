@@ -98,8 +98,9 @@ func TestBuiltinProvidersAreExactlyTheDrivers(t *testing.T) {
 	sort.Strings(seeded)
 
 	want := []string{
-		"anthropic", "cerebras", "deepseek", "groq", "mistral", "moonshot",
-		"ollama", "openai", "openrouter", "qwen", "together", "xai", "zai",
+		"abliteration", "anthropic", "cerebras", "deepseek", "groq", "mistral",
+		"moonshot", "ollama", "openai", "openrouter", "qwen", "together", "xai",
+		"zai",
 	}
 
 	if !reflect.DeepEqual(seeded, want) {
@@ -177,6 +178,54 @@ func TestOllamaNeedsNoKey(t *testing.T) {
 
 	if selection.Driver != "ollama" {
 		t.Errorf("provider = %q, want ollama", selection.Driver)
+	}
+}
+
+// The engine does not know Abliteration.ai, so the built-in is the one
+// built-in that carries its endpoint: the provider has to resolve to the
+// provider's URL and credential with nothing but ABLIT_KEY exported.
+func TestAbliterationSeedsItsEndpoint(t *testing.T) {
+	isolate(t)
+	t.Setenv("ABLIT_KEY", "sk-abliteration")
+
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	cfg.DefaultProvider = "abliteration"
+
+	selection, err := cfg.Selected()
+	if err != nil {
+		t.Fatalf("Selected: %v", err)
+	}
+
+	if selection.Driver != "abliteration" {
+		t.Errorf("driver = %q, want abliteration", selection.Driver)
+	}
+
+	if selection.BaseURL != "https://api.abliteration.ai/v1" {
+		t.Errorf("base URL = %q, want the provider's endpoint", selection.BaseURL)
+	}
+
+	if selection.APIKey != "sk-abliteration" {
+		t.Errorf("key = %q, want the exported one", selection.APIKey)
+	}
+
+	// an explicit base_url still wins, as it does for every provider
+	path := writeConfig(t, `
+providers:
+  abliteration:
+    base_url: 'https://staging.abliteration.ai/v1'
+`)
+
+	cfg, err = Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if got := cfg.Providers["abliteration"].BaseURL; got != "https://staging.abliteration.ai/v1" {
+		t.Errorf("base URL = %q, want the configured override", got)
 	}
 }
 

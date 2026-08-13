@@ -2,6 +2,12 @@
 
 All notable changes to Rook, following [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- New built-in provider: `abliteration` - [Abliteration.ai](https://abliteration.ai), an OpenAI-compatible provider hosting less-restrictive models (`abliterated-model`, `abliterated-model-large`) for security research. Export `ABLIT_KEY` and run with `--provider abliteration --model abliterated-model`. Unlike the other built-ins, the engine does not know this provider's endpoint, so the provider seeds its `base_url` (`https://api.abliteration.ai/v1`) from the built-in table.
+
 ## [0.6.2] - unreleased
 
 ### Changed

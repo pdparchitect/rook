@@ -19,6 +19,7 @@ account in between, so all you need is a provider key. Pick a provider with
 | `xai`        | `https://api.x.ai/v1`            | `XAI_API_KEY`        |
 | `moonshot`   | `https://api.moonshot.cn/v1`     | `MOONSHOT_API_KEY`   |
 | `qwen`       | DashScope compatible mode        | `DASHSCOPE_API_KEY`  |
+| `abliteration` | `https://api.abliteration.ai/v1` | `ABLIT_KEY` |
 | `ollama`     | `http://localhost:11434/v1`      | none (local)         |
 
 Rook defaults to **`zai`** running **`glm-5.2`** - a strong open model for
@@ -47,6 +48,15 @@ right choice - and the one provider that never sends data off-host:
 
 ```bash
 rook --provider ollama --model llama-4 "…"
+```
+
+For models that refuse less on offensive-security tasks,
+[Abliteration.ai](https://abliteration.ai) hosts less-restrictive variants for
+security research over the same OpenAI-compatible API:
+
+```bash
+export ABLIT_KEY="sk-..."
+rook --provider abliteration --model abliterated-model "…"
 ```
 
 ## Any other provider
