@@ -2,6 +2,15 @@
 
 All notable changes to Rook, following [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/).
 
+## [0.5.0] - unreleased
+
+### Changed
+
+- **Rook renders through zot's shared viewer (`github.com/openzot/openzot/tui`), themed red.** The hand-rolled event loop that printed activity to stderr is gone; Rook now hands the engine a `tui.Meta` (its own `rook` name in the badge, a red accent, the iteration cap shown as `iter N/10000` progress) and the viewer renders the run. On a terminal that is the full-screen view zot ships; piped, redirected or under `--verbose` it streams the same plain text as before, so logs and CI are unchanged. The semantic status colours (running / done / failed) stay fixed - only the brand accent is Rook's.
+- **Run artifacts are written through the engine's `Recorder`, not a private loop.** `status.json` and `events.jsonl` are now produced by an `agent.Recorder` the engine drives from the same event stream that feeds the viewer, so rendering and recording no longer share a switch statement. The on-disk format is unchanged.
+- **Bumped to zot 0.9.1.** Absorbs the upstream rename of the system-prompt field (`Backstory` → `Instructions`) and picks up provider-reported token usage, configurable context strategy, and the embeddable, themeable TUI (0.9.1 adds `tui.Meta.AppName`, so the viewer reads as "rook"). Built against the in-repo sibling via a `replace` directive so the shared engine and viewer stay in lockstep.
+- `--verbose` now selects plain streaming over the full-screen viewer (it still carries the reasoning tokens); the help text says so.
+
 ## [0.4.0] - 2026-08-05
 
 ### Features
