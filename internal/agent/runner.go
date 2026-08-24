@@ -44,23 +44,36 @@ var rookTheme = tui.Theme{
 
 // Config controls a single autonomous run.
 type Config struct {
-	// Provider names the model provider to call: "openai", "anthropic", "zai"
-	// and so on, or "custom" with a BaseURL for anything else that speaks the
-	// OpenAI-compatible API.
-	Provider string
+	// Driver names the provider implementation to call: "openai", "anthropic",
+	// "zai" and so on, or "custom" with a BaseURL for anything else that speaks
+	// the OpenAI-compatible API.
+	Driver string
 	// APIKey is the provider credential.
 	APIKey string
 	// BaseURL overrides the provider's default endpoint. Required for a custom
-	// provider, ignored otherwise unless a gateway needs it.
+	// driver, ignored otherwise unless a gateway needs it.
 	BaseURL string
 	// Model is the model the agent reasons with, as the provider names it.
 	Model string
-	// Backend is the name of the backend the run targets (zai, openai, …), shown
-	// in the viewer's header. Presentation only; the client is already resolved.
-	Backend string
+	// Provider is the name of the provider connection the run targets (zai,
+	// openai, …), shown in the viewer's header. Presentation only; the client is
+	// already resolved.
+	Provider string
 	// MaxIterations bounds how many tool-using turns the agent may take
 	// before it is forced to stop.
 	MaxIterations int
+	// Tuning carries the engine knobs a run is shaped by - the settle, call,
+	// time, token, recovery, cycle and compaction bounds. Its Model and
+	// MaxIterations are ignored here (those are already resolved above); the
+	// rest map straight onto the engine's run options. Zero fields use the
+	// engine defaults, so a bare Config still runs.
+	Tuning config.Agent
+	// ContextWindow overrides the model's total context window, in tokens. Zero
+	// uses the engine default.
+	ContextWindow int
+	// Vision offers the agent a tool for looking at images, for a model the
+	// operator has said can be shown them.
+	Vision bool
 	// Objective is the mission brief the run is dispatched from. Its task text
 	// (objective + success criteria + rules of engagement) is placed in the
 	// system prompt.
@@ -117,7 +130,7 @@ func Run(ctx context.Context, cfg Config) (int, tui.Outcome, error) {
 	// which endpoint and which tokenizer the engine uses, so it has to be known
 	// before the conversation starts.
 	client, err := agent.NewClient(agent.ClientOptions{
-		Provider: cfg.Provider,
+		Provider: cfg.Driver,
 		Model:    cfg.Model,
 		APIKey:   cfg.APIKey,
 		BaseURL:  cfg.BaseURL,
@@ -132,6 +145,8 @@ func Run(ctx context.Context, cfg Config) (int, tui.Outcome, error) {
 	// cloned onto disk - one tool, one verb, the path the only difference.
 	tools := agent.DefaultToolsFor(agent.ToolOptions{
 		EmbeddedSkills: skillsResult.EmbeddedContents(),
+		MaxOutput:      cfg.Tuning.MaxToolOutput,
+		Vision:         cfg.Vision,
 	})
 
 	// The task is the durable objective and goes into the system prompt; the
@@ -140,18 +155,48 @@ func Run(ctx context.Context, cfg Config) (int, tui.Outcome, error) {
 	// never summarised and always ordered first.
 	task := cfg.Objective.Task()
 
+	// max_time was validated at load, so a parse error here would be a bug;
+	// treat it as unbounded rather than failing a run that already passed.
+	maxDuration, _ := cfg.Tuning.MaxDuration()
+
+	// Settle mode: a run ends only when the agent records an outcome, never
+	// because its prose happened to sound conclusive. Rook is unattended by
+	// design - nobody is watching to judge whether "I have finished the audit"
+	// actually means finished - so an unambiguous ending matters more here than
+	// almost anywhere. The config may raise or lower it; unset keeps Rook's
+	// generous default.
+	maxSettles := cfg.Tuning.MaxSettles
+	if maxSettles == 0 {
+		maxSettles = defaultMaxSettles
+	}
+
 	opts := agent.ExecuteWithToolsOptions{
 		Instructions:  instructions + "\n\n## Your objective\n\n" + task,
 		Tools:         tools,
 		Skills:        loader.Skills,
 		MaxIterations: cfg.MaxIterations,
+		MaxSettles:    maxSettles,
 
-		// Settle mode: a run ends only when the agent records an outcome, never
-		// because its prose happened to sound conclusive. Rook is unattended by
-		// design - nobody is watching to judge whether "I have finished the
-		// audit" actually means finished - so an unambiguous ending matters more
-		// here than almost anywhere. A positive value enables it.
-		MaxSettles: defaultMaxSettles,
+		MaxCalls:         cfg.Tuning.MaxCalls,
+		MaxContinuations: cfg.Tuning.MaxContinuations,
+		MaxRecoveries:    cfg.Tuning.MaxRecoveries,
+		MaxCycles:        cfg.Tuning.MaxCycles,
+		MaxEmpties:       cfg.Tuning.MaxEmpties,
+		MaxDuration:      maxDuration,
+		LimitCheckpoints: cfg.Tuning.LimitCheckpoints,
+
+		// Empty is the default (compact); the agent layer resolves the string.
+		ContextStrategy:     cfg.Tuning.ContextStrategy,
+		CompactMinTokens:    cfg.Tuning.CompactMinTokens,
+		CompactMinMessages:  cfg.Tuning.CompactMinMessages,
+		CompactTriggerRatio: cfg.Tuning.CompactTriggerRatio,
+		ContextWindow:       cfg.ContextWindow,
+	}
+
+	// MaxTokens is a pointer so "unset" (provider decides) is distinct from a
+	// deliberate cap; a positive config value caps a single response.
+	if cfg.Tuning.MaxTokens > 0 {
+		opts.MaxTokens = &cfg.Tuning.MaxTokens
 	}
 
 	// A resumed run replays the earlier conversation, so the agent picks up with
@@ -214,7 +259,7 @@ func Run(ctx context.Context, cfg Config) (int, tui.Outcome, error) {
 		meta := session.Meta{
 			Task:     task,
 			Model:    cfg.Model,
-			Provider: cfg.Backend,
+			Provider: cfg.Provider,
 			Driver:   client.Provider(),
 			Workdir:  "",
 		}
@@ -257,7 +302,7 @@ func Run(ctx context.Context, cfg Config) (int, tui.Outcome, error) {
 		Task:          task,
 		Title:         cfg.Objective.DisplayTitle(),
 		Model:         cfg.Model,
-		Provider:      cfg.Backend,
+		Provider:      cfg.Provider,
 		Workdir:       workdir,
 		Plain:         cfg.Verbose,
 		Theme:         rookTheme,

@@ -9,10 +9,10 @@
 # field's path upper-cased with dots as underscores. Env vars override the file.
 #   agent.model           -> ROOK_AGENT_MODEL
 #   agent.max_iterations  -> ROOK_AGENT_MAX_ITERATIONS
-#   default_backend       -> ROOK_DEFAULT_BACKEND
+#   default_provider       -> ROOK_DEFAULT_PROVIDER
 #
 # Credentials: put the key DIRECTLY in this file, or reference an environment
-# variable with $VAR - either works. Each built-in backend also reads its
+# variable with $VAR - either works. Each built-in provider also reads its
 # provider's conventional variable, so exporting that is usually enough:
 #   openai     -> OPENAI_API_KEY          anthropic  -> ANTHROPIC_API_KEY
 #   groq       -> GROQ_API_KEY            mistral    -> MISTRAL_API_KEY
@@ -28,13 +28,30 @@ agent:
   # codebases, and permissive for offensive tasks: glm-5.2 (default), kimi-k3,
   # deepseek-v4-flash.
   #
-  # Whatever you pick, make sure default_backend below actually serves it. A
-  # model and a backend that cannot talk to each other fail as a provider error
+  # Whatever you pick, make sure default_provider below names a driver that serves it. A
+  # model and provider that cannot talk to each other fail as a provider error
   # rather than a configuration one, which is much harder to read.
   model: 'glm-5.2'
 
   # Safety cap on plan/act/observe cycles before the agent is forced to stop.
   max_iterations: 1000000
+
+  # Engine tuning (all optional; unset uses the built-in default). These mirror
+  # zot's, so a run is shaped the same way in either tool.
+  # max_settles: 20            # nudges to record an outcome before "unsettled"
+  # max_calls: 0               # cap on total tool calls (0 = unbounded)
+  # max_time: '2h'             # wall-clock cap ('30m', '2h', '90s'); empty = none
+  # max_tokens: 0              # cap on a single response's output (0 = unbounded)
+  # max_tool_output: 0         # bytes a tool result may return before truncation
+  # max_continuations: 0       # consecutive recovery attempts before giving up
+  # max_recoveries: 0          # total recovery attempts across the run
+  # max_cycles: 0              # nudges out of a detected repetition
+  # max_empties: 0             # consecutive empty turns before bailing
+  # limit_checkpoints: [50, 80, 90]   # % of a bounded limit to warn at ([] = off)
+  # context_strategy: compact  # 'compact' (summarise) or 'truncate' (drop oldest)
+  # compact_min_tokens: 0
+  # compact_min_messages: 0
+  # compact_trigger_ratio: 0.9 # fraction of the window at which compaction fires
 
 # Run artifacts. Every run writes status.json (live state) and events.jsonl (an
 # append-only log) into <run_dir>/<runid>/. This is telemetry - what the desktop
@@ -50,15 +67,15 @@ agent:
 # update_check:
 #   disabled: true
 
-# Backends are the providers a run can target. Rook talks to each one directly
+# Providers are the model-provider connections a run can target. Rook talks to each one directly
 # over the OpenAI-compatible API - there is no gateway and no account in between.
-# Pick one per run with --backend; otherwise default_backend is used.
+# Pick one per run with --provider; otherwise default_provider is used.
 #
-# A backend named after a provider needs no further configuration: the name is
-# the provider, and the credential comes from its conventional variable.
-default_backend: zai
+# A provider connection named after a driver needs no further configuration: the
+# name is the driver, and the credential comes from its conventional variable.
+default_provider: zai
 
-backends:
+providers:
   # The default, paired with the default model above: glm-5.2 served by Z.AI.
   # The common case is nothing here at all, and ZAI_API_KEY in the environment.
   zai:
@@ -77,9 +94,9 @@ backends:
     # base_url: 'http://localhost:11434/v1'
 
   # Anything else that speaks the OpenAI-compatible API. A custom endpoint needs
-  # its own key and, unless it is a known provider, an explicit provider: custom.
+  # its own key and, unless it is a known provider, an explicit driver: custom.
   # mygateway:
-  #   provider: custom
+  #   driver: custom
   #   base_url: 'https://gateway.internal.example.com/v1'
   #   api_key: '$GATEWAY_KEY'
   #
@@ -89,6 +106,8 @@ backends:
   #   models:
   #     fast:
   #       model: 'gpt-5-mini'
-  #       provider: 'openai'
+  #       driver: 'openai'
   #       api_key: '$OPENAI_API_KEY'
   #       max_iterations: 200
+  #       context: 128000      # real context window, if the endpoint's is smaller
+  #       vision: true         # this model can be shown images (offers the view tool)

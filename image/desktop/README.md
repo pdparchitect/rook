@@ -75,10 +75,10 @@ substrate version for reproducible builds.
 ## The API key
 
 Rook talks straight to a model provider, so a run needs that provider's key.
-Rook defaults to the `zai` backend running `glm-5.2`, which reads `ZAI_API_KEY`.
+Rook defaults to the `zai` provider running `glm-5.2`, which reads `ZAI_API_KEY`.
 Setup is the built-in **`rook config`**: it seeds `~/.config/rook/config.yaml`
 from the template on first run and opens it in `$EDITOR`, where you set the
-backend, model and `api_key`. The file lives on the persistent `~/.config/rook`
+provider, model and `api_key`. The file lives on the persistent `~/.config/rook`
 volume and rook reads it directly. The panel shows `ROOK · RUN rook config`
 until a key is present.
 

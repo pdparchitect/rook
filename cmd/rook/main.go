@@ -25,7 +25,7 @@
 //	# every run writes artifacts (status + events) and a ledger receipt
 //	rook .rook/objectives/hunt.yaml
 //
-//	rook config          # edit the config (backend, model, key)
+//	rook config          # edit the config (provider, model, key)
 //	rook version
 //
 // Configuration is layered: built-in defaults < config file < ROOK_* env vars <
@@ -89,7 +89,7 @@ func run() error {
 
 	flags := pflag.NewFlagSet("rook", pflag.ContinueOnError)
 	configPath := flags.String("config", "", "path to the config file (default: $ROOK_CONFIG or ~/.config/rook/config.yaml)")
-	backend := flags.String("backend", "", "backend to target: a provider such as zai (default), openai, anthropic, groq, ollama, or a backend named in the config")
+	provider := flags.String("provider", "", "model provider to run against: zai (default), openai, anthropic, groq, ollama, or a provider named in the config")
 	model := flags.String("model", "", "model the agent reasons with (overrides config)")
 	dir := flags.String("dir", ".", "working directory the agent investigates: the objective runs against this tree")
 	maxIter := flags.Int("max-iterations", 0, "maximum agent iterations before forced stop (overrides config)")
@@ -149,8 +149,8 @@ func run() error {
 	}
 
 	// CLI flags win over file and env.
-	if *backend != "" {
-		cfg.DefaultBackend = *backend
+	if *provider != "" {
+		cfg.DefaultProvider = *provider
 	}
 	if *model != "" {
 		cfg.Agent.Model = *model
@@ -239,10 +239,10 @@ func run() error {
 		return fmt.Errorf("cannot enter --dir %q: %w", *dir, err)
 	}
 
-	// Strip backend credentials from the environment before the agent runs, so
+	// Strip provider credentials from the environment before the agent runs, so
 	// the commands it executes against a target cannot read them. The resolved
 	// key is still handed to the client below.
-	config.ScrubBackendSecrets(cfg)
+	config.ScrubProviderSecrets(cfg)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -356,12 +356,15 @@ func (r runRunner) execute(o objective.Objective, quitOnDone bool) error {
 	}
 
 	code, outcome, err := agent.Run(r.ctx, agent.Config{
-		Provider:      r.selected.Provider,
+		Driver:        r.selected.Driver,
 		APIKey:        r.selected.APIKey,
 		BaseURL:        r.selected.BaseURL,
 		Model:          r.selected.Model,
-		Backend:        r.cfg.DefaultBackend,
+		Provider:       r.cfg.DefaultProvider,
 		MaxIterations:  r.selected.MaxIterations,
+		ContextWindow:  r.selected.ContextWindow,
+		Vision:         r.selected.Vision,
+		Tuning:         r.cfg.Agent,
 		Objective:      o,
 		Verbose:        r.verbose,
 		RunDir:         r.runDir,
@@ -534,7 +537,7 @@ func printVersion() {
 
 // editConfig ensures the config file exists - seeding it from the embedded
 // template on first run - and opens it in the user's editor. This is the setup
-// path: configure the backend, model and provider key by editing the file.
+// path: configure the provider, model and API key by editing the file.
 func editConfig() error {
 	path := config.DefaultConfigPath()
 

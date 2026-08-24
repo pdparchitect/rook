@@ -190,14 +190,14 @@ Or clone and build with the provided `Makefile`:
 make build      # → ./rook
 ```
 
-## Backends
+## Providers
 
-A run targets a **backend** - the provider Rook talks to. Rook speaks to each one
-directly over the OpenAI-compatible API; there is no gateway and no account in
-between, so all you need is a provider key. Pick a backend with `--backend`, or
-set `default_backend` in config.
+A run targets a **provider** - the model provider Rook talks to. Rook speaks to
+each one directly over the OpenAI-compatible API; there is no gateway and no
+account in between, so all you need is a provider key. Pick a provider with
+`--provider`, or set `default_provider` in config.
 
-| Backend      | Endpoint                         | Credential from      |
+| Provider     | Endpoint                         | Credential from      |
 | ------------ | -------------------------------- | -------------------- |
 | `zai`        | `https://api.z.ai/api/paas/v4`   | `ZAI_API_KEY`        |
 | `openai`     | `https://api.openai.com/v1`      | `OPENAI_API_KEY`     |
@@ -215,7 +215,7 @@ set `default_backend` in config.
 
 Rook defaults to **`zai`** running **`glm-5.2`** - a strong open model for
 bug-hunting work: large context for reading codebases, and permissive for
-offensive tasks. The model must be one the chosen backend serves.
+offensive tasks. The model must be one the chosen provider serves.
 
 The common case is one exported variable and nothing else:
 
@@ -231,26 +231,26 @@ Switch provider with a flag:
 
 ```bash
 export OPENAI_API_KEY="sk-..."
-rook --backend openai --model gpt-5 "…"
+rook --provider openai --model gpt-5 "…"
 ```
 
 For sensitive material that must not leave the machine, a local model is the
-right choice - and the one backend that never sends data off-host:
+right choice - and the one provider that never sends data off-host:
 
 ```bash
-rook --backend ollama --model llama-4 "…"
+rook --provider ollama --model llama-4 "…"
 ```
 
 ### Any other provider
 
-Anything that speaks the OpenAI-compatible API works. Name a backend, give it a
+Anything that speaks the OpenAI-compatible API works. Name a provider, give it a
 base URL and a key:
 
 ```yaml
-default_backend: mygateway
-backends:
+default_provider: mygateway
+providers:
   mygateway:
-    provider: custom
+    driver: custom
     base_url: https://gateway.internal.example.com/v1
     api_key: '$GATEWAY_KEY'
 ```
@@ -269,15 +269,24 @@ rook config path   # print the config file location
 
 The file lives at `~/.config/rook/config.yaml` (override with `$ROOK_CONFIG` or
 `--config`). Every scalar has a matching `ROOK_*` env var (`agent.model` →
-`ROOK_AGENT_MODEL`, `default_backend` → `ROOK_DEFAULT_BACKEND`). A backend's key
+`ROOK_AGENT_MODEL`, `default_provider` → `ROOK_DEFAULT_PROVIDER`). A provider's key
 comes from its provider's conventional variable or `api_key` in the file, which
 may be a literal or a `$VAR` reference. A developer build also reads a `.env`
 from the working directory - a released one does not (see
 [Development](#development)). See
 [configs/rook.example.yaml](configs/rook.example.yaml).
 
-Rook strips the resolved backend credential from the environment before the
-agent runs, so the commands it executes against a target cannot read it.
+Under `agent:` the run's engine knobs mirror zot's - `max_settles`, `max_calls`,
+`max_time`, `max_tokens`, `max_tool_output`, the recovery and cycle caps,
+`limit_checkpoints`, `context_strategy` and the `compact_*` trio - each optional,
+zero using the engine default. A model entry additionally takes `context` (a
+smaller real context window than the model's card) and `vision` (this model can
+be shown images). See [configs/rook.example.yaml](configs/rook.example.yaml).
+
+Rook strips the resolved provider credential from the environment before the
+agent runs, so the commands it executes against a target cannot read it. A
+built-in provider's conventional key is withheld once you set a custom
+`base_url`, so a key scoped to one host is never forwarded to another.
 
 ## Files & directories
 
@@ -307,7 +316,7 @@ recent active run.
 ## Usage
 
 ```bash
-export ZAI_API_KEY="sk-..."       # or --backend openai with OPENAI_API_KEY, etc.
+export ZAI_API_KEY="sk-..."       # or --provider openai with OPENAI_API_KEY, etc.
 
 # Write an objective, then run it
 rook new "Gain access to the target network and map paths to domain admin"
@@ -329,7 +338,7 @@ does not (see [Development](#development)).
 
 | Flag               | Default                      | Description                                        |
 | ------------------ | ---------------------------- | -------------------------------------------------- |
-| `--backend`        | `zai`                        | Backend to target: any provider, or one named in config |
+| `--provider`        | `zai`                        | Model provider to run against, or one named in config |
 | `--config`         | `~/.config/rook/config.yaml` | Path to the config file (or `$ROOK_CONFIG`)        |
 | `--model`          | `glm-5.2`                    | Model the agent reasons with (overrides config)    |
 | `--max-iterations` | `10000`                      | Maximum agent iterations before a forced stop      |
