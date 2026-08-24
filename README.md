@@ -89,3 +89,4 @@ Read [safety](docs/safety.md) first.
 | [Zot](https://github.com/openzot/openzot)        | The autonomous engine Rook runs on - an automated software factory in one binary |
 | [Pion](https://github.com/pdparchitect/pion)     | A defensive AI security harness for automatic monitoring and incident prevention |
 | [Pantalk](https://github.com/pantalk/pantalk)    | Connect coding agents to the chat platforms people already use                   |
+| [MCPShim](https://github.com/mcpshim/mcpshim)    | Turn MCP servers and HTTP APIs into standard CLI commands                        |
