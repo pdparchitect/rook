@@ -17,7 +17,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Validate tag and changelog
         shell: bash
@@ -55,12 +55,12 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
-          go-version: 'stable'
+          go-version-file: go.mod
 
       - name: Build binary
         env:
@@ -84,7 +84,7 @@ jobs:
           tar -czf "dist/rook-${VERSION}-${GOOS}-${GOARCH}.tar.gz" -C dist "rook-${VERSION}-${GOOS}-${GOARCH}"
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: rook-${{ github.ref_name }}-${{ matrix.goos }}-${{ matrix.goarch }}
           path: dist/*.tar.gz
@@ -94,8 +94,11 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           path: dist
           merge-multiple: true
@@ -105,9 +108,13 @@ jobs:
         run: sha256sum *.tar.gz > checksums.txt
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           generate_release_notes: true
+          # install.sh ships as a release asset so the latest-download URL the
+          # update notice points at always serves the current installer. It is
+          # the checked-out repo copy - the single source of truth.
           files: |
             dist/*.tar.gz
             dist/checksums.txt
+            install.sh

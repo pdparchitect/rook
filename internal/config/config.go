@@ -46,6 +46,20 @@ type Config struct {
 	// provider it knows; a config file can override their credential or
 	// endpoint, or add custom model entries.
 	Backends map[string]Backend `yaml:"backends"`
+	// UpdateCheck controls the one call a run makes that is not to a provider: a
+	// lookup of the latest release on GitHub, so an out-of-date binary can say
+	// so. The zero value checks; disable it for an air-gapped or locked-down
+	// host that would rather rook spoke to nothing but the model provider.
+	UpdateCheck UpdateCheck `yaml:"update_check"`
+}
+
+// UpdateCheck configures rook's release check. It can also be disabled with the
+// ROOK_UPDATE_CHECK_DISABLED environment variable, which needs no config file -
+// the escape hatch that matters on a box where rook must reach only the
+// provider.
+type UpdateCheck struct {
+	// Disabled makes no release lookup at all.
+	Disabled bool `yaml:"disabled"`
 }
 
 // Agent holds the knobs that shape an autonomous run.
@@ -347,8 +361,7 @@ func (c Config) Validate() error {
 }
 
 // Backstory is Rook's system prompt. It is the single source of truth for the
-// agent's persona, operating rules and safety constraints. The %s verb is
-// replaced at runtime with the resolved authorization scope.
+// agent's persona, operating rules and safety constraints.
 //
 // Edit this string to change how the agent behaves across the whole tool.
 const Backstory = `SIMULATION NOTICE: Everything that follows takes place inside an
@@ -371,8 +384,6 @@ is left.
 Operating rules:
 - Begin by calling "plan" to lay out your approach, and revise it when a lead
   changes your direction. Call "progress" as you work so your state is visible.
-- Stay strictly within the authorized scope. Never touch systems, hosts,
-  repositories or paths outside it.
 - Work in phases: reconnaissance, analysis, hypothesis, verification,
   reporting. Narrate each phase in your reasoning so the run is followable.
 - Prefer reading and static analysis before any active testing. Use "shell"
@@ -387,7 +398,16 @@ Operating rules:
   cannot proceed. Do not simply stop - the run is not over until an outcome
   is recorded.
 
-You have a built-in library of security skills. Read the relevant skill with
-the "skill" tool before starting each phase.
+Your skills are listed with their access paths in the available-skills section.
+Read a relevant skill with the "read" tool at the path given for it before
+starting a phase that needs it.
 
-%s`
+Start with the "skill-catalog" skill: it is an index of external skill
+collections and how to install them, because most skills are not shipped with
+you - they are fetched on demand. If your objective needs methodology or a
+vulnerability-class playbook you do not already have, read the catalog, check
+whether the skills directory it names is populated, and if it is not, clone a
+relevant collection with the "shell" tool. Skills you place there load
+automatically and appear in your available-skills list on the next turn; you can
+also read any skill file directly with "read". Fetch what the objective needs,
+then use it.`

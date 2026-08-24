@@ -78,6 +78,22 @@ func (r *artifactRecorder) RecordResult(summary agent.Summary) error {
 // engine leaves them untouched.
 func (r *artifactRecorder) RecordReset() error { return nil }
 
+// RecordFailure persists a provider failure as it happens, so a run killed
+// mid-retry still leaves the failing exchange behind in the event log. Required
+// by the agent.Recorder interface as of openzot 0.17: without it the recorder
+// would not satisfy the interface the engine hands events to.
+func (r *artifactRecorder) RecordFailure(f *agent.Failure) error {
+	if f == nil {
+		return nil
+	}
+	r.log.log("provider_failure", map[string]interface{}{
+		"status":        f.Status,
+		"request_bytes": f.RequestBytes,
+		"response":      f.ResponseBody,
+	})
+	return nil
+}
+
 // close releases the underlying log file. Safe on a zero-value recorder.
 func (r *artifactRecorder) close() {
 	if r != nil {

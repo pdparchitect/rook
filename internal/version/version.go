@@ -27,6 +27,10 @@ const (
 	checkTimeout = 4 * time.Second
 )
 
+// releaseAPI is the base URL for the latest-release endpoint. A package-level
+// variable so tests can point it at an httptest server.
+var releaseAPI = "https://api.github.com/repos/" + releaseRepo + "/releases/latest"
+
 // IsDev reports whether the binary was built without an explicit version tag.
 func IsDev() bool {
 	return Version == "dev" || Version == ""
@@ -43,7 +47,7 @@ type ghRelease struct {
 func LatestRelease() (tag string, url string, err error) {
 	client := &http.Client{Timeout: checkTimeout}
 
-	req, err := http.NewRequest("GET", fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", releaseRepo), nil)
+	req, err := http.NewRequest("GET", releaseAPI, nil)
 	if err != nil {
 		return "", "", err
 	}
@@ -142,6 +146,13 @@ func Check() (*CheckResult, error) {
 	}, nil
 }
 
+// InstallCommand is the one-line installer the update notice recommends. It
+// fetches the installer published as a release asset (rook has no website of
+// its own), which downloads the latest release for this platform, verifies its
+// checksum and replaces the binary in place - so it doubles as the upgrade
+// command.
+const InstallCommand = "curl -fsSL https://github.com/" + releaseRepo + "/releases/latest/download/install.sh | bash"
+
 // FormatUpdateNotice returns a human-readable update notice string. Returns
 // an empty string if there is no update available.
 func FormatUpdateNotice(r *CheckResult) string {
@@ -150,7 +161,7 @@ func FormatUpdateNotice(r *CheckResult) string {
 	}
 
 	return fmt.Sprintf(
-		"A new version of rook is available: %s → %s\nRelease: %s",
-		r.Current, r.Latest, r.UpdateURL,
+		"A new version of rook is available: %s → %s\nUpgrade: %s\nRelease: %s",
+		r.Current, r.Latest, InstallCommand, r.UpdateURL,
 	)
 }
