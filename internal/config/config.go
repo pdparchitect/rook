@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -17,21 +18,21 @@ import (
 // glm-5.2 is a strong open model well suited to autonomous security work: large
 // context for reading codebases during source audits, solid tool use, and it is
 // open/permissive for offensive-security tasks. The model must be one the
-// selected backend actually serves, which is why the default backend below is
-// the provider that serves this one.
+// selected provider actually serves, which is why the default provider below is
+// the one that serves this one.
 const DefaultModel = "glm-5.2"
 
 // DefaultMaxIterations bounds how many tool-using turns the agent may take
 // before it is forced to stop.
 const DefaultMaxIterations = 10000
 
-// DefaultBackend is the backend a run targets when --backend and config do not
-// select one.
+// DefaultProvider is the provider a run targets when --provider and config do
+// not select one.
 //
 // @note it has to serve DefaultModel. A default pair that cannot talk to each
 // other is worse than no default, because the failure arrives as a provider
 // error rather than as a configuration one.
-const DefaultBackend = "zai"
+const DefaultProvider = "zai"
 
 // Config is the fully-resolved Rook configuration.
 type Config struct {
@@ -40,12 +41,12 @@ type Config struct {
 	// per-run subdirectory with status.json and events.jsonl). Empty uses the
 	// built-in default, $XDG_STATE_HOME/rook/runs.
 	RunDir string `yaml:"run_dir"`
-	// DefaultBackend is the backend used when --backend is not given.
-	DefaultBackend string `yaml:"default_backend"`
-	// Backends are the named providers a run can target. Rook ships with one per
-	// provider it knows; a config file can override their credential or
-	// endpoint, or add custom model entries.
-	Backends map[string]Backend `yaml:"backends"`
+	// DefaultProvider is the provider used when --provider is not given.
+	DefaultProvider string `yaml:"default_provider"`
+	// Providers are the named model-provider connections a run can target. Rook
+	// ships with one for each provider it knows; a config file can override their
+	// credential or endpoint, or add custom model entries.
+	Providers map[string]ProviderConfig `yaml:"providers"`
 	// UpdateCheck controls the one call a run makes that is not to a provider: a
 	// lookup of the latest release on GitHub, so an out-of-date binary can say
 	// so. The zero value checks; disable it for an air-gapped or locked-down
@@ -62,35 +63,102 @@ type UpdateCheck struct {
 	Disabled bool `yaml:"disabled"`
 }
 
-// Agent holds the knobs that shape an autonomous run.
+// Agent holds the knobs that shape an autonomous run. Most mirror zot's, so a
+// run is tuned the same way in either tool; each is optional and zero uses the
+// engine's built-in default.
 type Agent struct {
-	// Model is the model name driving the agent, resolved against the backend.
+	// Model is the model name driving the agent, resolved against the provider.
 	Model string `yaml:"model"`
 	// MaxIterations caps how many plan/act/observe cycles the agent may run
 	// before it is forced to stop.
 	MaxIterations int `yaml:"max_iterations"`
+	// MaxSettles bounds how many times the agent is nudged to record an outcome
+	// (call _success or _failure) before the run is surfaced as unsettled. Zero
+	// uses Rook's built-in default, which is generous because a security run
+	// legitimately writes a long final report before it settles.
+	MaxSettles int `yaml:"max_settles"`
+	// MaxCalls caps total tool calls across a run, independently of iterations.
+	// Zero is unbounded - only max_iterations is a finite default.
+	MaxCalls int `yaml:"max_calls"`
+	// MaxTime caps the wall-clock time of a run, as a duration string ("30m",
+	// "2h", "90s"). Empty is unbounded.
+	MaxTime string `yaml:"max_time"`
+	// MaxTokens caps the output tokens of a single model response. Zero is
+	// unbounded - the model produces its full output.
+	MaxTokens int `yaml:"max_tokens"`
+	// MaxToolOutput caps the bytes a single tool result may return before it is
+	// truncated. Zero uses the built-in default; lower it for a small-context
+	// endpoint where one large result can overflow the request.
+	MaxToolOutput int `yaml:"max_tool_output"`
+	// MaxContinuations caps CONSECUTIVE recovery attempts (a truncated response
+	// or a retriable error) with no good turn between them. Zero uses the default.
+	MaxContinuations int `yaml:"max_continuations"`
+	// MaxRecoveries caps recovery attempts across a whole run, however spaced.
+	// Zero uses the default.
+	MaxRecoveries int `yaml:"max_recoveries"`
+	// MaxCycles is how many times the loop nudges the model out of a detected
+	// repetition before giving up. Zero uses the default.
+	MaxCycles int `yaml:"max_cycles"`
+	// MaxEmpties caps consecutive empty turns before the run bails. Zero uses
+	// the default.
+	MaxEmpties int `yaml:"max_empties"`
+	// LimitCheckpoints are the percentages of a bounded limit at which the model
+	// is told it is approaching that limit, so it can pace itself. Nil uses the
+	// default (50, 80, 90); an explicit empty list turns the notices off.
+	LimitCheckpoints []int `yaml:"limit_checkpoints"`
+	// ContextStrategy decides what happens as the conversation approaches the
+	// model's context window: "compact" summarises older history into a
+	// checkpoint (an extra model call, higher fidelity), "truncate" drops the
+	// oldest messages to fit. Empty uses the default, "compact".
+	ContextStrategy string `yaml:"context_strategy"`
+	// CompactMinTokens, CompactMinMessages and CompactTriggerRatio tune when the
+	// compact strategy fires. Zero uses the built-in default for each;
+	// CompactTriggerRatio must be within (0, 1].
+	CompactMinTokens    int     `yaml:"compact_min_tokens"`
+	CompactMinMessages  int     `yaml:"compact_min_messages"`
+	CompactTriggerRatio float64 `yaml:"compact_trigger_ratio"`
 }
 
-// Backend is a provider Rook can run against. Every provider authenticates with
-// a Bearer credential.
-type Backend struct {
-	// Provider names the model provider this backend talks to: "openai",
-	// "anthropic", "zai" and so on. Empty infers it from the backend's own name,
-	// so a backend called "groq" needs no further configuration.
-	Provider string `yaml:"provider"`
+// MaxDuration parses Agent.MaxTime into a duration. Empty is zero (unbounded);
+// a malformed or negative value is an error so a typo is caught at load.
+func (a Agent) MaxDuration() (time.Duration, error) {
+	value := strings.TrimSpace(a.MaxTime)
+	if value == "" {
+		return 0, nil
+	}
+
+	d, err := time.ParseDuration(value)
+	if err != nil {
+		return 0, fmt.Errorf("%q is not a duration (use forms like \"30m\", \"2h\", \"90s\")", a.MaxTime)
+	}
+
+	if d < 0 {
+		return 0, fmt.Errorf("%q is negative", a.MaxTime)
+	}
+
+	return d, nil
+}
+
+// ProviderConfig is a named model-provider connection Rook can run against.
+// Every provider authenticates with a Bearer credential.
+type ProviderConfig struct {
+	// Driver names the provider implementation this connection uses: "openai",
+	// "anthropic", "zai" and so on. Empty infers it from the connection's own
+	// name, so a provider called "groq" needs no further configuration.
+	Driver string `yaml:"driver"`
 	// BaseURL overrides the API endpoint. Empty uses the built-in default.
-	// Required for a "custom" provider.
+	// Required for a "custom" driver.
 	BaseURL string `yaml:"base_url"`
 	// APIKey is the provider credential. Supports "$ENV_VAR" references, so no
 	// secret need be written to disk; for a built-in it defaults from the
 	// provider's conventional variable.
 	APIKey string `yaml:"api_key"`
-	// Models holds custom, named model configurations for this backend. When a
+	// Models holds custom, named model configurations for this provider. When a
 	// run's model name matches a key here, that entry's settings take priority.
 	Models map[string]ModelConfig `yaml:"models"`
 }
 
-// ModelConfig is a custom model definition under a backend. Any field set here
+// ModelConfig is a custom model definition under a provider. Any field set here
 // overrides the run's defaults when the model is selected.
 type ModelConfig struct {
 	// Model is the underlying model id to send. Lets a custom name alias a real
@@ -98,23 +166,33 @@ type ModelConfig struct {
 	Model string `yaml:"model"`
 	// MaxIterations overrides the global iteration cap for this model.
 	MaxIterations int `yaml:"max_iterations"`
-	// Provider overrides the backend's provider for this model, so one gateway
-	// entry can front several.
-	Provider string `yaml:"provider"`
-	// APIKey is this model's own credential, overriding the backend's. Supports
+	// Driver overrides the provider's driver for this model, so one gateway
+	// connection can front several implementations.
+	Driver string `yaml:"driver"`
+	// APIKey is this model's own credential, overriding the provider's. Supports
 	// "$ENV_VAR".
 	APIKey string `yaml:"api_key"`
+	// Context overrides the model's total context window, in tokens. The escape
+	// hatch for a serving endpoint whose real ceiling is smaller than the
+	// model's card - an uncatalogued model is assumed large, so a small upstream
+	// rejects the request before compaction fires. Zero uses the engine default.
+	Context int `yaml:"context"`
+	// Vision says whether this model can be shown images. Off by default; set it
+	// true for a model served by an endpoint Rook cannot ask (there is no
+	// catalogue lookup here), so the agent is offered the tool for looking. A
+	// pointer so "not stated" and "stated false" are distinct.
+	Vision *bool `yaml:"vision"`
 }
 
-// builtinBackends are the providers Rook ships with, each seeded from its
-// provider's conventional environment variable so exporting that one variable is
-// all a run needs.
+// builtinProviders are the providers Rook ships with, each seeded from its
+// conventional environment variable so exporting that one variable is all a run
+// needs.
 //
 // The endpoints themselves live in the engine, which is what actually calls
 // them; duplicating the URLs here would give two places for them to drift.
 // Ollama is deliberately included: a local model is the right default for
 // security work on material that must not leave the machine.
-var builtinBackends = map[string]struct {
+var builtinProviders = map[string]struct {
 	secretEnv string // the provider's conventional credential variable
 }{
 	"openai":     {secretEnv: "OPENAI_API_KEY"},
@@ -132,14 +210,14 @@ var builtinBackends = map[string]struct {
 	"ollama":     {},
 }
 
-// BackendProvider returns the provider a backend talks to, inferring it from the
-// backend's own name when nothing says otherwise.
-func BackendProvider(name string, backend Backend) string {
-	if p := strings.TrimSpace(backend.Provider); p != "" {
-		return p
+// ProviderDriver returns the driver a provider connection uses, inferring it
+// from the connection's own name when nothing says otherwise.
+func ProviderDriver(name string, provider ProviderConfig) string {
+	if d := strings.TrimSpace(provider.Driver); d != "" {
+		return d
 	}
 
-	if _, ok := builtinBackends[name]; ok {
+	if _, ok := builtinProviders[name]; ok {
 		return name
 	}
 
@@ -153,7 +231,7 @@ func Defaults() Config {
 			Model:         DefaultModel,
 			MaxIterations: DefaultMaxIterations,
 		},
-		DefaultBackend: DefaultBackend,
+		DefaultProvider: DefaultProvider,
 	}
 }
 
@@ -184,51 +262,61 @@ func Load(path string) (Config, error) {
 		return cfg, err
 	}
 
-	resolveBackends(&cfg)
+	resolveProviders(&cfg)
 
-	if cfg.DefaultBackend == "" {
-		cfg.DefaultBackend = DefaultBackend
+	if cfg.DefaultProvider == "" {
+		cfg.DefaultProvider = DefaultProvider
 	}
 
 	return cfg, nil
 }
 
-// resolveBackends ensures the built-in backends exist and resolves every
+// resolveProviders ensures the built-in providers exist and resolves every
 // credential: a config "$ENV_VAR" reference first, then the provider's
 // conventional environment variable as a fallback.
 //
 // The endpoint is left empty for a built-in. The engine knows each provider's
 // URL, so filling one in here would create a second copy to drift.
-func resolveBackends(cfg *Config) {
-	if cfg.Backends == nil {
-		cfg.Backends = map[string]Backend{}
+func resolveProviders(cfg *Config) {
+	if cfg.Providers == nil {
+		cfg.Providers = map[string]ProviderConfig{}
 	}
 
-	for name := range builtinBackends {
-		if _, ok := cfg.Backends[name]; !ok {
-			cfg.Backends[name] = Backend{}
+	for name := range builtinProviders {
+		if _, ok := cfg.Providers[name]; !ok {
+			cfg.Providers[name] = ProviderConfig{}
 		}
 	}
 
-	for name, b := range cfg.Backends {
-		builtin, isBuiltin := builtinBackends[name]
+	for name, p := range cfg.Providers {
+		builtin, isBuiltin := builtinProviders[name]
 
-		b.APIKey = resolveSecret(b.APIKey)
+		// Whether a custom endpoint was typed for this connection. A built-in
+		// provider's conventional key is scoped to its own host; forwarding it
+		// to a URL somebody put in the config is how a provider credential ends
+		// up in someone else's logs - and for an offensive-security tool aimed
+		// at endpoints that may be adversarial, that leak matters more than the
+		// convenience. So the ambient fallback is withheld once base_url is set.
+		overridden := p.BaseURL != ""
+
+		p.APIKey = resolveSecret(p.APIKey)
 
 		// Exporting the provider's own variable is enough on its own, which is
-		// what makes a run possible with no config file at all.
-		if b.APIKey == "" && isBuiltin && builtin.secretEnv != "" {
-			b.APIKey = strings.TrimSpace(os.Getenv(builtin.secretEnv))
+		// what makes a run possible with no config file at all - but not once
+		// base_url has been overridden, when the connection must carry a key
+		// written for it.
+		if p.APIKey == "" && isBuiltin && builtin.secretEnv != "" && !overridden {
+			p.APIKey = strings.TrimSpace(os.Getenv(builtin.secretEnv))
 		}
 
-		for mName, mc := range b.Models {
+		for mName, mc := range p.Models {
 			if mc.APIKey != "" {
 				mc.APIKey = resolveSecret(mc.APIKey)
-				b.Models[mName] = mc
+				p.Models[mName] = mc
 			}
 		}
 
-		cfg.Backends[name] = b
+		cfg.Providers[name] = p
 	}
 }
 
@@ -243,77 +331,88 @@ func resolveSecret(v string) string {
 	return v
 }
 
-// Selected resolves the default backend into the provider, endpoint, credential,
+// Selected resolves the default provider into the driver, endpoint, credential,
 // model and iteration cap a run uses, applying any custom model definition.
 //
-// It is the one place a backend choice turns into concrete client settings, so
+// It is the one place a provider choice turns into concrete client settings, so
 // a misconfiguration is reported here - before a request is made - rather than
 // as a provider error mid-run.
 func (c Config) Selected() (Selection, error) {
-	b, ok := c.Backends[c.DefaultBackend]
+	p, ok := c.Providers[c.DefaultProvider]
 	if !ok {
-		return Selection{}, fmt.Errorf("backend %q is not configured", c.DefaultBackend)
+		return Selection{}, fmt.Errorf("provider %q is not configured", c.DefaultProvider)
 	}
 
 	selection := Selection{
-		Provider:      BackendProvider(c.DefaultBackend, b),
-		BaseURL:       b.BaseURL,
-		APIKey:        b.APIKey,
+		Driver:        ProviderDriver(c.DefaultProvider, p),
+		BaseURL:       p.BaseURL,
+		APIKey:        p.APIKey,
 		Model:         c.Agent.Model,
 		MaxIterations: c.Agent.MaxIterations,
 	}
 
-	if mc, ok := b.Models[selection.Model]; ok {
+	if mc, ok := p.Models[selection.Model]; ok {
 		if mc.Model != "" {
 			selection.Model = mc.Model
 		}
 		if mc.MaxIterations > 0 {
 			selection.MaxIterations = mc.MaxIterations
 		}
-		if mc.Provider != "" {
-			selection.Provider = mc.Provider
+		if mc.Driver != "" {
+			selection.Driver = mc.Driver
 		}
 		if mc.APIKey != "" {
 			selection.APIKey = mc.APIKey
 		}
+		if mc.Context > 0 {
+			selection.ContextWindow = mc.Context
+		}
+		if mc.Vision != nil {
+			selection.Vision = *mc.Vision
+		}
 	}
 
-	if selection.Provider == "" {
+	if selection.Driver == "" {
 		return Selection{}, fmt.Errorf(
-			"backend %q does not name a model provider (set provider: on the backend or the model)",
-			c.DefaultBackend)
+			"provider %q does not name a driver (set driver: on the provider or the model)",
+			c.DefaultProvider)
 	}
 
 	// Ollama is local and unauthenticated; everything else needs a key, and
 	// saying so now beats a 401 halfway through a run.
-	if selection.APIKey == "" && selection.Provider != "ollama" {
+	if selection.APIKey == "" && selection.Driver != "ollama" {
 		return Selection{}, fmt.Errorf(
-			"no API key for backend %q (set %s in the environment, or api_key in config)",
-			c.DefaultBackend, secretEnvName(c.DefaultBackend))
+			"no API key for provider %q (set %s in the environment, or api_key in config)",
+			c.DefaultProvider, secretEnvName(c.DefaultProvider))
 	}
 
 	return selection, nil
 }
 
-// Selection is a resolved backend choice: everything a run needs to build its
-// client.
+// Selection is a resolved provider choice: everything a run needs to build its
+// client. Driver is the provider implementation the engine talks to.
 type Selection struct {
-	Provider      string
+	Driver        string
 	BaseURL       string
 	APIKey        string
 	Model         string
 	MaxIterations int
+	// ContextWindow overrides the model's total context window, in tokens. Zero
+	// uses the engine default.
+	ContextWindow int
+	// Vision says whether the model may be shown images, offering the view tool.
+	Vision bool
 }
 
-func secretEnvName(backend string) string {
-	if b, ok := builtinBackends[backend]; ok && b.secretEnv != "" {
-		return b.secretEnv
+func secretEnvName(provider string) string {
+	if p, ok := builtinProviders[provider]; ok && p.secretEnv != "" {
+		return p.secretEnv
 	}
 
 	return "its credential"
 }
 
-// ScrubBackendSecrets removes every resolved backend credential, backend-level
+// ScrubProviderSecrets removes every resolved provider credential, provider-level
 // and per-model, from the process environment.
 //
 // Config keeps the resolved values for the client, while shell commands the
@@ -321,16 +420,31 @@ func secretEnvName(backend string) string {
 // tools: an offensive-security agent runs commands against targets, and a
 // provider key in the environment of one of those commands is a key that can
 // leave with it.
-func ScrubBackendSecrets(cfg Config) {
+func ScrubProviderSecrets(cfg Config) {
+	// Every built-in provider's conventional credential variable is unset by
+	// name, whichever provider the run actually uses and whether or not its key
+	// was adopted into config. A connection with an overridden base_url
+	// deliberately does not adopt its ambient key (see resolveProviders), so a
+	// value-only scrub would miss it and leave the variable readable to the
+	// commands the agent runs against a target - which is the exact leak this
+	// scrub exists to prevent.
+	for _, builtin := range builtinProviders {
+		if builtin.secretEnv != "" {
+			_ = os.Unsetenv(builtin.secretEnv)
+		}
+	}
+
+	// Then scrub by value, to catch a credential carried under a non-conventional
+	// variable name - a `$VAR` reference or a custom provider's own key.
 	secrets := map[string]bool{}
 	add := func(v string) {
 		if v != "" {
 			secrets[v] = true
 		}
 	}
-	for _, backend := range cfg.Backends {
-		add(backend.APIKey)
-		for _, mc := range backend.Models {
+	for _, provider := range cfg.Providers {
+		add(provider.APIKey)
+		for _, mc := range provider.Models {
 			add(mc.APIKey)
 		}
 	}
@@ -346,6 +460,12 @@ func ScrubBackendSecrets(cfg Config) {
 	}
 }
 
+// Context-overflow strategies. Empty means StrategyCompact.
+const (
+	StrategyCompact  = "compact"
+	StrategyTruncate = "truncate"
+)
+
 // Validate checks the fully-merged configuration.
 func (c Config) Validate() error {
 	if strings.TrimSpace(c.Agent.Model) == "" {
@@ -354,8 +474,28 @@ func (c Config) Validate() error {
 	if c.Agent.MaxIterations <= 0 {
 		return fmt.Errorf("agent.max_iterations must be a positive number")
 	}
-	if _, ok := c.Backends[c.DefaultBackend]; !ok {
-		return fmt.Errorf("default backend %q is not configured", c.DefaultBackend)
+	if _, err := c.Agent.MaxDuration(); err != nil {
+		return fmt.Errorf("agent.max_time: %w", err)
+	}
+	for _, p := range c.Agent.LimitCheckpoints {
+		if p < 1 || p > 99 {
+			return fmt.Errorf("agent.limit_checkpoints: %d is out of range (each must be 1-99)", p)
+		}
+	}
+	switch c.Agent.ContextStrategy {
+	case "", StrategyCompact, StrategyTruncate:
+	default:
+		return fmt.Errorf("agent.context_strategy: %q is not valid (use %q or %q)",
+			c.Agent.ContextStrategy, StrategyCompact, StrategyTruncate)
+	}
+	if r := c.Agent.CompactTriggerRatio; r != 0 && (r <= 0 || r > 1) {
+		return fmt.Errorf("agent.compact_trigger_ratio: %g is out of range (must be within (0, 1])", r)
+	}
+	if c.Agent.CompactMinTokens < 0 || c.Agent.CompactMinMessages < 0 {
+		return fmt.Errorf("agent.compact_min_tokens / compact_min_messages must not be negative")
+	}
+	if _, ok := c.Providers[c.DefaultProvider]; !ok {
+		return fmt.Errorf("default provider %q is not configured", c.DefaultProvider)
 	}
 	return nil
 }

@@ -2,7 +2,21 @@
 
 All notable changes to Rook, following [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/).
 
-## [0.6.0] - unreleased
+## [0.6.1] - 2026-08-24
+
+### Changed
+
+- **"Backend" is now "provider", to match zot.** Rook and zot are configured the same way but spoke different dialects: rook called a named model-provider connection a *backend*, zot called it a *provider*, and where zot's connection names its implementation with `driver:`, rook's used `provider:`. They now agree on zot's vocabulary. The config keys `default_backend` → `default_provider` and `backends:` → `providers:`; the inner `provider:` field (the implementation) → `driver:`; the flag `--backend` → `--provider`; and the env var `ROOK_DEFAULT_BACKEND` → `ROOK_DEFAULT_PROVIDER`. This is a breaking config change - a config file or script using the old keys must be updated - but it makes moving between the two tools one vocabulary instead of two.
+
+### Added
+
+- **The engine tuning knobs, and per-model capability overrides, to match zot.** rook's `agent:` config exposed only `model` and `max_iterations`; the rest of the engine's controls were hardcoded or unreachable. It now carries the same knobs zot does - `max_settles`, `max_calls`, `max_time`, `max_tokens`, `max_tool_output`, `max_continuations`, `max_recoveries`, `max_cycles`, `max_empties`, `limit_checkpoints`, `context_strategy`, and the `compact_*` trio - each optional, zero using the engine default, and validated at load. A model entry also takes `context` (correct a too-large assumed context window for a small endpoint) and `vision` (say a model can be shown images, so the agent is offered the view tool - previously rook never enabled vision at all). rook cannot import zot's internal model catalogue, so there is no auto-detection; these are explicit operator overrides, which is the part that matters for custom endpoints.
+
+### Fixed
+
+- **A provider's API key never reaches a custom endpoint it was not written for, and never reaches the agent's shell.** A built-in provider's conventional key (e.g. `OPENAI_API_KEY`) was seeded as its credential purely from its name. Two consequences are now closed: (1) when a built-in provider is pointed at a custom `base_url`, its ambient key is no longer adopted as the connection's credential, so a key scoped to the provider's real host is never forwarded to a URL from the config; and (2) `ScrubProviderSecrets` now unsets every built-in provider's conventional variable by name - not only those whose value was resolved into config - so a provider key exported in the environment is stripped before the agent runs even when that provider has a `base_url` set. For an offensive-security tool whose agent runs commands against targets, both keep a provider credential out of reach of those commands.
+
+## [0.6.0] - 2026-08-24
 
 ### Added
 

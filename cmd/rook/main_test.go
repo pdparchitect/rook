@@ -640,7 +640,7 @@ func TestRunNoObjectivesErrors(t *testing.T) {
 		devNull.Close()
 	}()
 
-	// Provide a config so the backend resolves, then fail on objectives.
+	// Provide a config so the provider resolves, then fail on objectives.
 	// Actually, a bare `rook` with no config file and no API key will fail at
 	// cfg.Validate or cfg.Selected first. We want the "no objectives" error,
 	// so provide a valid config.
