@@ -2,6 +2,14 @@
 
 All notable changes to Rook, following [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/).
 
+## [0.6.2] - unreleased
+
+### Changed
+
+- **The README is minimalist; detail moved into `docs/`.** The front page had grown to ~500 lines; it now leads with the essentials - what Rook is, install, a first run, why, safety - and a Documentation section, matching zot's shape. The providers, configuration, objectives/flags, skills, how-it-works, safety and development sections moved into a `docs/` folder, each its own page.
+
+- **Release notes now come from this changelog, matching zot.** The release workflow set `generate_release_notes: true`, so a GitHub release listed raw commit titles and ignored `CHANGELOG.md` entirely - while zot published the curated changelog section as its release body. rook's workflow now extracts the top-most `## [version]` section from `CHANGELOG.md` (the same `awk` zot uses) and publishes it as the release body. The changelog format was already identical; only the workflow differed. Every future release reads like the changelog rather than a commit list.
+
 ## [0.6.1] - 2026-08-24
 
 ### Changed

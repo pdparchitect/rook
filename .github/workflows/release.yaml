@@ -107,10 +107,23 @@ jobs:
         working-directory: dist
         run: sha256sum *.tar.gz > checksums.txt
 
+      # Release notes are the top-most section of the curated CHANGELOG.md -
+      # everything between the first "## [" version header and the next one - so
+      # the release reads like the changelog rather than a raw commit list. The
+      # validate job already guarantees that section exists for this tag.
+      - name: Generate release notes
+        id: notes
+        run: |
+          {
+            echo "content<<CHANGELOG_EOF"
+            awk '/^## \[/ { if (seen) exit; seen=1; next } seen { print }' CHANGELOG.md
+            echo "CHANGELOG_EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
-          generate_release_notes: true
+          body: ${{ steps.notes.outputs.content }}
           # install.sh ships as a release asset so the latest-download URL the
           # update notice points at always serves the current installer. It is
           # the checked-out repo copy - the single source of truth.
