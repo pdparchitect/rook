@@ -74,8 +74,6 @@ type Status struct {
 	State string `json:"state"`
 	// Model is the model driving the run.
 	Model string `json:"model"`
-	// Scope is the authorization boundary the run was given.
-	Scope string `json:"scope,omitempty"`
 	// Iteration is the current plan/act/observe cycle.
 	Iteration int `json:"iteration"`
 	// MaxIterations is the safety cap.

@@ -5,20 +5,21 @@
 **Rook** is an AI bug-hunting harness for vulnerability research, bug hunting and
 source-code auditing. It is a single Go executable that drives a model through
 the whole hunt: the autonomous engine ([zot](https://github.com/openzot/openzot))
-runs inside the binary and talks straight to a model provider, with a library of
-security skills embedded directly into the binary - no external files, no hosted
-service, no setup beyond a provider key.
+runs inside the binary and talks straight to a model provider - no hosted
+service, no setup beyond a provider key. Rook ships lean: the security skills
+that guide a hunt live in external collections it fetches on demand, so the
+library grows and stays current without a new release.
 
-Give Rook a target and a scope, and it works through the problem the way a
+Give Rook an objective and it works through the problem the way a
 researcher would.
 
 > ⚠️ **Authorized use only.** Rook is an offensive-security tool. Only run it
 > against systems, code and services you own or are explicitly authorized to
-> test. Always pass an explicit `--scope`.
+> test.
 
 ## What you get
 
-Point Rook at a target within a scope and walk away. It works the problem the way
+Point Rook at a target and walk away. It works the problem the way
 a researcher would - enumerating, reading code, probing, and chaining what it
 finds - then hands back concrete findings: what the issue is, where it lives, how
 to reproduce it, and why it matters. Not a checklist of maybes, but the ones it
@@ -27,39 +28,47 @@ of everything it tried along the way.
 
 ## What can it do?
 
-A single binary, a plain-English task, and an explicit scope. Each example
-below is backed by Rook's built-in [skills](#embedded-skills):
+A single binary and an objective file. Write the mission,
+walk away, come back to findings. A few examples of the kinds of objectives
+Rook works through - each guided by [skills](#skills) it fetches on demand:
 
 ```bash
-# Source-code audit - injection, IDOR and broken access control
-rook --scope "repo: ./api, read-only, no network" \
-     "Audit ./api for SQL injection, IDOR and auth bypass"
+# Reverse-engineer an entire binary or firmware image - recover structure,
+# embedded secrets, and the attack surface it exposes
+rook new "Reverse engineer the firmware image in ./firmware.bin: recover embedded credentials, map services, and identify remotely reachable bugs"
 
-# Web app / API - SSRF in a URL-fetching feature (authorized target)
-rook --scope-file scope.txt \
-     "Test the link-preview endpoint on staging.example.com for SSRF to cloud metadata"
+# Full engagement: gain a foothold and map how deep access goes
+rook new "Gain initial access to the target network from the external surface, then map lateral-movement paths to the domain controller"
 
-# External recon & OSINT - map an organisation's attack surface
-rook --scope "domain: example.com + subdomains, passive recon only" \
-     "Map example.com's external surface: subdomains, exposed services and leaked secrets"
+# Whole-codebase audit - not one endpoint, the whole project
+rook new "Audit the entire ./monorepo for the full OWASP taxonomy: injection, broken access control, auth flaws, crypto misuse, and unsafe deserialization"
 
-# Cloud misconfiguration - read-only review
-rook --scope "AWS, describe/list only, no mutations" \
-     "Check for public S3 buckets, over-permissive IAM roles and IMDS exposure"
+# Cloud compromise assessment - find the path from a foothold to data exfiltration
+rook new "Assess the AWS environment for paths to privilege escalation; chain IAM, S3 and IMDS exposure into a full data-exfiltration chain"
 
-# Smart-contract audit
-rook --scope "repo: ./contracts" \
-     "Audit the Solidity contracts for reentrancy, access-control and oracle bugs"
+# External attack-surface mapping
+rook new "Map example.com's external surface: subdomains, exposed services, leaked credentials, and anything that should not be internet-facing"
 
-# Supply chain - dependencies and CI exposure
-rook --scope "repo: ., read-only" \
-     "Review dependencies for known CVEs and flag supply-chain risks"
+# Smart-contract security review - the whole protocol, not one function
+rook new "Audit the Solidity protocol in ./contracts for reentrancy, access-control, oracle manipulation and economic attacks across every contract"
 ```
 
-Rook also covers OAuth/SAML/JWT flaws, file-upload and SSTI/RCE chains,
-business-logic and race conditions, HTTP request smuggling, and enterprise
-identity/infrastructure attack surfaces (M365/Entra, Okta, VPN appliances,
-vCenter, SharePoint) - see the full [skill library](#embedded-skills).
+Each `rook new` drops a file under `.rook/objectives/`. Edit it to set the
+success criteria, then a bare `rook` runs every outstanding objective in the
+dossier - skipping what the ledger already records as done. `--watch` turns the
+folder into a drop box.
+
+```bash
+rook                                          # run every outstanding objective
+rook .rook/objectives/firmware-recon.yaml   # run one by name
+rook --watch                                  # drop-box mode
+```
+
+The skills a hunt can draw on cover far more - OAuth/SAML/JWT flaws, file-upload
+and SSTI/RCE chains, business-logic and race conditions, HTTP request smuggling,
+and enterprise identity/infrastructure attack surfaces (M365/Entra, Okta, VPN
+appliances, vCenter, SharePoint) - fetched from a collection when the objective
+needs them. See [Skills](#skills).
 
 ## Why Rook?
 
@@ -67,27 +76,29 @@ Security work happens in awkward places - a hardened bastion, an air-gapped
 network, a throwaway cloud VM, a CI runner, someone else's laptop during an
 engagement. Rook is built for exactly those:
 
-- **One single executable.** Everything - the agent loop, the tools, and the
-  entire skill library - is compiled into one binary via Go's `embed`. There is
-  no runtime to install, no interpreter, no `node_modules`, no virtualenv, no
-  config files to ship alongside it. Download one file, `chmod +x`, run.
+- **One single executable.** Everything that runs a hunt - the agent loop and
+  the tools - is compiled into one binary via Go's `embed`. There is no runtime
+  to install, no interpreter, no `node_modules`, no virtualenv, no config files
+  to ship alongside it. Download one file, `chmod +x`, run.
 - **Portable everywhere.** Statically linked (`CGO_ENABLED=0`) and
   cross-compiled for Linux, macOS and Windows on both amd64 and arm64. The same
   tool drops onto an Apple-silicon laptop, an x86 server, or an ARM box with no
   changes. Nothing to match against the host's libraries or OS version.
-- **Nothing to fetch at runtime.** Because the skills are baked in, Rook works
-  in locked-down or offline environments where you can't `pip install` or pull
-  containers. Its only external dependency is the model provider you point it at
-  (and your key) - or nothing at all off the machine, if you run a local model.
+- **Skills fetched on demand, or pre-placed.** Rook ships with a catalog that
+  names external skill collections and clones them into `~/.config/rook/skills`
+  when a hunt needs them. For a locked-down or air-gapped box, drop a skills
+  directory there ahead of time and Rook runs with no fetch at all - the skills
+  are just files it reads. The binary itself carries no third-party skill
+  content, so there is nothing baked in to go stale or to carry someone else's
+  license.
 - **The engine runs in the binary.** The reasoning and tool-execution loop,
-  thread management, compaction and loop detection all run in-process, in the
-  same statically-linked file as the skills. Nothing about a run depends on a
-  service staying up, and a run is reproducible offline. You point Rook at
-  whichever provider you already pay for.
+  thread management, compaction and loop detection all run in-process. Nothing
+  about a run depends on a service staying up, and a run is reproducible offline.
+  You point Rook at whichever provider you already pay for.
 - **Trivial to distribute and audit.** A single artifact with a published
   checksum is easy to vet, copy onto a target box, version-pin, and remove
   cleanly afterwards - important when you're operating inside someone else's
-  scope.
+  environment.
 - **Purpose-built, not a general chatbot.** Rook is a focused bug-hunting
   harness: it knows the methodology, the bug classes, and the reporting
   discipline out of the box, and stays within the authorization boundary you
@@ -98,21 +109,43 @@ harness you can carry anywhere as **one file** and run with **zero setup**.
 
 ## Features
 
-- **Single self-contained binary.** The skill library is compiled into the
+- **Single self-contained binary.** The engine and tools are compiled into the
   executable via Go's `embed`, so it ships and runs as one file.
-- **Autonomous agent loop.** Built on the Go SDK's `agent.ExecuteWithTools` -
-  the agent plans, acts, tracks progress and exits on its own, bounded by
-  `--max-iterations`.
-- **Built-in tools.** File read/write/edit and sandboxed shell execution via
-  the SDK's `DefaultTools`.
-- **Embedded skill library.** Phase-by-phase security playbooks (see below)
-  surfaced to the model through the SDK skills feature.
+- **Objectives, not prompts.** A mission file - the durable goal, success
+  criteria, and rules of engagement - is the contract a
+  run is dispatched from. `rook new "the objective"` scaffolds one; a bare
+  `rook` runs every outstanding objective; `--watch` turns the folder into a
+  drop box. A ledger records what has run, so finished work is skipped and
+  edited objectives are re-queued.
+- **Autonomous agent loop.** Built on zot's engine
+  (`agent.ExecuteWithTools`) - the agent plans, acts, tracks progress and
+  exits on its own, bounded by `--max-iterations` and settle mode (a run ends
+  only when it records an outcome, never because its prose sounded conclusive).
+- **Built-in tools.** File read/write/edit and shell execution via the
+  engine's `DefaultTools`.
+- **On-demand skills.** A tiny embedded catalog points the agent at external
+  skill collections; it clones what an objective needs into a local directory
+  and reads from there, so the library can grow without a rook release (see
+  [Skills](#skills)).
 - **Cross-platform releases.** GitHub Actions builds binaries for Linux, macOS
   and Windows (amd64/arm64) on every tag.
 
 ## Install
 
-### From a release (recommended)
+### One-line installer (recommended)
+
+```bash
+curl -fsSL https://github.com/pdparchitect/rook/releases/latest/download/install.sh | bash
+```
+
+Installs the latest release for your platform (Linux/macOS, amd64/arm64),
+verifies it against the release checksums, and puts `rook` in `~/.local/bin`.
+The same command upgrades in place, and `rook`'s own update notice prints it
+when a newer release exists. Pin a version or change the directory with
+`ROOK_VERSION` / `ROOK_INSTALL_DIR`, or pass a tag: `... | bash -s -- v0.6.0`.
+The installer is `install.sh` in this repo, published as a release asset.
+
+### From a release archive
 
 Prebuilt, self-contained binaries are published for every release on the
 [releases page](https://github.com/pdparchitect/rook/releases), for Linux, macOS
@@ -188,7 +221,10 @@ The common case is one exported variable and nothing else:
 
 ```bash
 export ZAI_API_KEY="sk-..."
-rook --scope "repo: ./server" "Audit the HTTP handlers for injection bugs"
+rook new "Reverse engineer ./firmware.bin and identify remotely reachable bugs"
+# edit .rook/objectives/reverse-engineer-firmware-bin-and-identify-.yaml
+# to set the success criteria, then:
+rook
 ```
 
 Switch provider with a flag:
@@ -221,7 +257,7 @@ backends:
 
 A key can be written literally or as a `$VAR` reference so no secret is on disk.
 
-## Configuration## Configuration
+## Configuration
 
 Configuration is layered: **built-in defaults < config file < `ROOK_*` env vars
 < CLI flags**. The config file is optional - env vars alone are enough.
@@ -245,22 +281,24 @@ agent runs, so the commands it executes against a target cannot read it.
 
 ## Files & directories
 
-Rook uses three distinct locations - it helps to keep them straight:
+Rook uses four distinct locations - it helps to keep them straight:
 
 | Location          | What it holds                                                                                                                                               | Default path                                                                                                     |
 | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
 | **Workspace**     | The directory Rook works _in_ - what it reads, edits, and runs commands against. Any file the agent writes (a report you asked for, a PoC) lands here.      | the current working directory (the desktop image opens in `/workspace`)                                          |
+| **Dossier**       | The project's objectives and run records: `.rook/objectives/<slug>.yaml` (the mission files) and `.rook/records/<slug>/<run>.yaml` (the ledger receipts).    | `./.rook/` (override with `--objectives-dir` / `--records-dir`)                                                  |
 | **Run artifacts** | Rook's own record of _each run_: `status.json` (live state) and `events.jsonl` (append-only log). Telemetry, not work product - the status widget reads it. | `~/.local/state/rook/runs/<runid>/` (`$XDG_STATE_HOME`; override with `--run-dir` / `run_dir` / `$ROOK_RUN_DIR`) |
 | **Config**        | Your settings and provider keys.                                                                                                                            | `~/.config/rook/config.yaml` (`$ROOK_CONFIG` / `--config`)                                                       |
 
-The **run** is Rook's log of _what it did_; the **workspace** is _where it did
-it_. They never mix: run artifacts are telemetry under your state directory,
-while the agent's file writes stay in the workspace.
+The **dossier** is the contract: objective files are what a run is dispatched
+from, and the ledger records what has been done. The **run artifacts** are
+Rook's log of _what it did_; the **workspace** is _where it did it_. They never
+mix: run artifacts are telemetry under your state directory, while the agent's
+file writes stay in the workspace.
 
 Rook does not create files in the workspace on its own - the findings **report**
 is delivered as the agent's response. If you want it saved, ask for it in the
-task and the agent writes it into the workspace, e.g.
-`rook --scope "repo: ., read-only" "audit this repo and write the report to report.md"`.
+objective and the agent writes it into the workspace.
 
 Each run gets its own `runs/<runid>/` directory (`<timestamp>-<pid>`), so
 concurrent runs never overwrite each other; the desktop widget shows the most
@@ -271,12 +309,14 @@ recent active run.
 ```bash
 export ZAI_API_KEY="sk-..."       # or --backend openai with OPENAI_API_KEY, etc.
 
-# Audit a local codebase
-rook --scope "repo: ./server, no network access" \
-     "Audit the HTTP handlers in ./server for injection and auth bypass bugs"
+# Write an objective, then run it
+rook new "Gain access to the target network and map paths to domain admin"
+# edit .rook/objectives/gain-access-to-the-target-network-and-map-pa.yaml
+# to set the success criteria, then:
+rook
 
-# Hunt with reasoning streamed to the terminal
-rook -v --scope-file scope.txt "Find SSRF in the URL-fetching service"
+# Run a single objective with reasoning streamed to the terminal
+rook -v .rook/objectives/firmware-recon.yaml
 
 # Version
 rook version
@@ -293,49 +333,75 @@ does not (see [Development](#development)).
 | `--config`         | `~/.config/rook/config.yaml` | Path to the config file (or `$ROOK_CONFIG`)        |
 | `--model`          | `glm-5.2`                    | Model the agent reasons with (overrides config)    |
 | `--max-iterations` | `10000`                      | Maximum agent iterations before a forced stop      |
-| `--scope`          | -                            | Authorization boundary (hosts, repos, paths)       |
-| `--scope-file`     | -                            | Read the authorization scope from a file           |
+| `--objectives-dir` | `./.rook/objectives`         | Where this project's objectives live, run by a bare `rook` |
+| `--records-dir`    | `./.rook/records`            | Where run records (the ledger) are written         |
+| `--watch`          | `false`                      | Stay up and run objectives as they arrive          |
+| `--rerun`           | `false`                      | Run objectives even when the ledger says done      |
 | `-v`, `--verbose`  | `false`                      | Stream the agent's reasoning tokens to stdout      |
 | `-V`, `--version`  | -                            | Print version and exit                             |
 
 Flags override `ROOK_*` environment variables, which override the config file,
 which overrides the built-in defaults.
 
+### Objective files
+
+An objective is a small YAML file with four fields:
+
+```yaml
+# .rook/objectives/firmware-recon.yaml
+# rook objective - what to do and what "done" means.
+
+title: Firmware reverse engineering
+
+# The durable goal of the engagement. The objective will not run until this is filled in.
+objective: |-
+  Reverse engineer the firmware image: recover embedded credentials, map the
+  services it exposes, and identify remotely reachable memory-corruption bugs
+
+# The objective is not met until every one of these holds.
+success:
+  - every credential is extracted and documented with its location and purpose
+  - every remote service is enumerated with its protocol and entry point
+  - every exploitable bug has a working PoC and impact assessment
+  - the engagement report is delivered as the run's outcome
+
+# Rules that hold for the whole run - non-negotiable constraints on how the
+# objective may be pursued.
+rules_of_engagement:
+  - no network access; work entirely offline against the image
+  - do not modify the original firmware image
+```
+
 The agent's findings stream to **stderr**; with `--verbose`, reasoning tokens
 stream to **stdout**. The final report is delivered as the agent's response -
 Rook does not write files on its own. If you want the report (or any other
-artifact) saved to disk, ask for it in the task and the agent will use its
+artifact) saved to disk, ask for it in the objective and the agent will use its
 `write` tool.
 
-## Embedded Skills
+## Skills
 
-Rook ships with **51 security skills** - each a `SKILL.md` playbook under
-[`skills/`](skills/), embedded into the binary at build time and offered to the
-agent as it works. They cover, roughly:
+A skill is a `SKILL.md` playbook - methodology, or a vulnerability-class hunting
+guide - that the agent reads when it decides the skill is relevant. Rook does
+**not** compile a skill library into the binary. The only embedded skill is a
+**catalog**: an index that tells the agent where external skill collections live
+and how to install them. Everything else is fetched on demand.
 
-- **Methodology & mindset** - `bug-bounty`, `bb-methodology`, `redteam-mindset`,
-  `bb-local-toolkit`, `hunt-dispatch`.
-- **Web/API vulnerability hunting** (24 `hunt-*` classes + `security-arsenal`) -
-  IDOR, SQLi, XSS, SSRF, RCE, SSTI, XXE, CSRF, OAuth, SAML, GraphQL, auth/MFA
-  bypass, ATO, business logic, cache poisoning, HTTP smuggling, file upload,
-  API misconfig, race conditions, and more.
-- **Enterprise & infrastructure attack chains** - `m365-entra-attack`,
-  `okta-attack`, `cloud-iam-deep`, `vmware-vcenter-attack`,
-  `enterprise-vpn-attack`, `hunt-sharepoint`, `hunt-aspnet`, `hunt-ntlm-info`,
-  `apk-redteam-pipeline`, `supply-chain-attack-recon`.
-- **Recon & OSINT** - `web2-recon`, `offensive-osint`, `osint-methodology`,
-  `hunt-subdomain`.
-- **Web3** - `web3-audit`, `meme-coin-audit`.
-- **Triage, reporting & hygiene** - `triage-validation`, `bugcrowd-reporting`,
-  `report-writing`, `redteam-report-template`, `evidence-hygiene`,
-  `mid-engagement-ir-detection`.
+**Where skills live.** Rook loads skills from `~/.config/rook/skills`
+(`$XDG_CONFIG_HOME/rook/skills`), each as `<skill-name>/SKILL.md`. It rescans
+that directory every turn, so a skill added while a run is going - including one
+the agent clones itself - is available on the next step, no restart. A skill on
+disk overrides an embedded one of the same name.
 
-These skills are sourced from the **claude-bughunter** project - see
-[Credits](#credits).
+**How the agent gets them.** The catalog names a public collection and the
+agent, using its `shell` tool, clones it into the skills directory - for
+example [Claude-BugHunter](https://github.com/elementalsouls/Claude-BugHunter),
+a broad library of bug-bounty methodology and per-vulnerability-class playbooks
+(SQLi, XSS, SSRF, IDOR, OAuth, SAML, GraphQL, cloud, business logic, and more).
+Nothing is baked into the binary, so the collection can grow and stay current
+without a rook release, and Rook carries no third-party skill content or license
+of its own.
 
-### Adding a skill
-
-Create `skills/<name>/SKILL.md` with YAML front matter:
+**Adding your own skill.** Drop `<name>/SKILL.md` into `~/.config/rook/skills`:
 
 ```markdown
 ---
@@ -348,29 +414,31 @@ description: One sentence the model uses to decide when to apply this skill.
 Step-by-step guidance...
 ```
 
-Rebuild the binary - the new skill is picked up automatically by the `embed`
-directive. No registration code required.
+No rebuild - it is picked up on the next turn. A private methodology skill, or
+an override of a collection's shipped one, is just a file in that directory.
 
 ## How it works
 
 ```
 cmd/rook          CLI: flags, .env, signal handling, version
 internal/config   Central config: default model, max iterations, system prompt
-internal/agent    Loads embedded skills, registers tools, drives the agent loop
+internal/agent    Loads the catalog + on-disk skills, registers tools, drives the loop
 internal/version  Build-time version + GitHub release update check
-embed.go          //go:embed skills  →  the embedded skill library
-skills/           SKILL.md playbooks compiled into the binary
+embed.go          //go:embed skills  →  the embedded catalog
+skills/           the skill-catalog bootstrap (no skill library)
 ```
 
 The default model and the agent's system prompt (backstory) live in one place -
 [`internal/config/config.go`](internal/config/config.go) - so they can be tuned
 without touching the CLI or the agent loop.
 
-At startup Rook loads the embedded skills with `agent.LoadSkillsFromFS`,
-registers `agent.DefaultTools()` plus a `skill` tool serving the embedded
-library, builds a security-focused backstory that pins the agent to your
-authorized scope, and runs `agent.ExecuteWithTools` until the agent records an
-outcome by calling `_success` or `_failure`.
+At startup Rook loads the embedded catalog with `agent.LoadSkillsFromFS` and
+layers the on-disk skills directory over it with `agent.NewSkillLoader`, which
+rescans that directory each turn. Skills are read with the `read` tool - an
+embedded skill through an `embedded-skill://` URL, an on-disk one through its
+file path. Rook registers `agent.DefaultTools()`, builds a security-focused
+backstory, and runs `agent.ExecuteWithTools` until the agent records an outcome
+by calling `_success` or `_failure`.
 
 ## Development
 
@@ -406,18 +474,20 @@ about to run commands against it. The switch is a build tag (`-tags dev`) that
 defaults to off; `rook --version` prints which kind you have. See
 [RELEASES.md](RELEASES.md) for the release flow.
 
-## Credits
+## Skill collections
 
-Rook's embedded skill library is sourced from the **claude-bughunter** project
-by **[Sachin Sharma](https://www.linkedin.com/in/sachinsharma8080/)**:
+Rook bundles no third-party skill content. The catalog points at external
+collections you fetch on demand; the default one is **claude-bughunter** by
+**[Sachin Sharma](https://www.linkedin.com/in/sachinsharma8080/)**:
 
 > https://github.com/elementalsouls/Claude-BugHunter
 
-The skills are used under the MIT License (Copyright © 2026 Sachin Sharma). The
-full upstream license is preserved in [NOTICE.md](NOTICE.md). Our thanks to the
-author and the bug-bounty community whose disclosed reports informed them.
+That collection is MIT-licensed and keeps its own license when you clone it -
+Rook neither redistributes nor relicenses it. Our thanks to the author and the
+bug-bounty community whose disclosed reports informed it.
 
 ## License
 
-Rook itself is MIT licensed - see [LICENSE](LICENSE). Bundled third-party
-content retains its original license; see [NOTICE.md](NOTICE.md).
+Rook is MIT licensed - see [LICENSE](LICENSE). It bundles no third-party
+content: skill collections are fetched at runtime and keep their own licenses
+(see [Skill collections](#skill-collections)).

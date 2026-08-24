@@ -389,3 +389,201 @@ backends:
 		t.Error("scrubbing must not empty the resolved config")
 	}
 }
+
+// Validate catches a missing model, a non-positive iteration cap, and a default
+// backend the config does not define - before any request reaches a provider.
+func TestValidateRejectsBadConfigs(t *testing.T) {
+	isolate(t)
+	t.Setenv("ZAI_API_KEY", "sk-zai")
+
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	// A valid config passes.
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("a valid config should pass: %v", err)
+	}
+
+	// Missing model.
+	good := cfg.Agent.Model
+	cfg.Agent.Model = ""
+	if err := cfg.Validate(); err == nil {
+		t.Error("missing model must be rejected")
+	}
+	cfg.Agent.Model = good
+
+	// Non-positive iterations.
+	goodIter := cfg.Agent.MaxIterations
+	cfg.Agent.MaxIterations = 0
+	if err := cfg.Validate(); err == nil {
+		t.Error("zero max_iterations must be rejected")
+	}
+	cfg.Agent.MaxIterations = -1
+	if err := cfg.Validate(); err == nil {
+		t.Error("negative max_iterations must be rejected")
+	}
+	cfg.Agent.MaxIterations = goodIter
+
+	// Unknown default backend.
+	goodBackend := cfg.DefaultBackend
+	cfg.DefaultBackend = "nowhere"
+	if err := cfg.Validate(); err == nil {
+		t.Error("an unknown default backend must be rejected")
+	}
+	cfg.DefaultBackend = goodBackend
+}
+
+// secretEnvName returns the conventional variable for a built-in backend, and a
+// generic fallback for one the tool does not know.
+func TestSecretEnvName(t *testing.T) {
+	if got := secretEnvName("zai"); got != "ZAI_API_KEY" {
+		t.Errorf("secretEnvName(zai) = %q, want ZAI_API_KEY", got)
+	}
+
+	if got := secretEnvName("ollama"); got != "its credential" {
+		t.Errorf("secretEnvName(ollama) = %q, want the generic fallback", got)
+	}
+
+	if got := secretEnvName("custom"); got != "its credential" {
+		t.Errorf("secretEnvName(custom) = %q, want the generic fallback", got)
+	}
+}
+
+// DefaultConfigPath honours $ROOK_CONFIG, then XDG_CONFIG_HOME, then falls back
+// to ~/.config/rook/config.yaml.
+func TestDefaultConfigPath(t *testing.T) {
+	t.Setenv("ROOK_CONFIG", "/custom/path/config.yaml")
+	if got := DefaultConfigPath(); got != "/custom/path/config.yaml" {
+		t.Errorf("ROOK_CONFIG override = %q", got)
+	}
+
+	t.Setenv("ROOK_CONFIG", "")
+	t.Setenv("XDG_CONFIG_HOME", "/xdg")
+	if got := DefaultConfigPath(); got != "/xdg/rook/config.yaml" {
+		t.Errorf("XDG_CONFIG_HOME path = %q", got)
+	}
+
+	t.Setenv("XDG_CONFIG_HOME", "")
+	home := os.Getenv("HOME")
+	if home != "" {
+		want := filepath.Join(home, ".config", "rook", "config.yaml")
+		if got := DefaultConfigPath(); got != want {
+			t.Errorf("default path = %q, want %q", got, want)
+		}
+	}
+}
+
+// DefaultRunDir honours $XDG_STATE_HOME, then falls back to
+// ~/.local/state/rook/runs.
+func TestDefaultRunDir(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", "/xdg-state")
+	if got := DefaultRunDir(); got != "/xdg-state/rook/runs" {
+		t.Errorf("XDG_STATE_HOME path = %q", got)
+	}
+
+	t.Setenv("XDG_STATE_HOME", "")
+	home := os.Getenv("HOME")
+	if home != "" {
+		want := filepath.Join(home, ".local", "state", "rook", "runs")
+		if got := DefaultRunDir(); got != want {
+			t.Errorf("default run dir = %q, want %q", got, want)
+		}
+	}
+}
+
+// A bad integer in a ROOK_* env var is reported with the variable name, so the
+// operator can find the misconfiguration.
+func TestApplyEnvRejectsBadIntegers(t *testing.T) {
+	isolate(t)
+
+	path := writeConfig(t, "default_backend: zai\n")
+	t.Setenv("ZAI_API_KEY", "sk-zai")
+	t.Setenv("ROOK_AGENT_MAX_ITERATIONS", "not-a-number")
+
+	if _, err := Load(path); err == nil {
+		t.Error("a non-integer ROOK_AGENT_MAX_ITERATIONS must be rejected")
+	}
+}
+
+// resolveSecret expands $VAR and ${VAR}, and returns a literal unchanged.
+func TestResolveSecret(t *testing.T) {
+	t.Setenv("ROOK_TEST_SECRET", "expanded")
+
+	if got := resolveSecret("$ROOK_TEST_SECRET"); got != "expanded" {
+		t.Errorf("dollar reference = %q", got)
+	}
+
+	if got := resolveSecret("${ROOK_TEST_SECRET}"); got != "expanded" {
+		t.Errorf("braced reference = %q", got)
+	}
+
+	if got := resolveSecret("sk-literal"); got != "sk-literal" {
+		t.Errorf("literal = %q", got)
+	}
+
+	if got := resolveSecret("  $ROOK_TEST_SECRET  "); got != "expanded" {
+		t.Errorf("trimmed reference = %q", got)
+	}
+
+	t.Setenv("ROOK_TEST_SECRET", "")
+	if got := resolveSecret("$ROOK_TEST_SECRET"); got != "" {
+		t.Errorf("unset reference = %q, want empty", got)
+	}
+}
+
+// setScalar handles strings, integers and booleans. A bad integer or boolean
+// is an error rather than a silent drop.
+func TestSetScalar(t *testing.T) {
+	var s struct {
+		Str string `yaml:"str"`
+		Num int    `yaml:"num"`
+		Flg bool   `yaml:"flg"`
+	}
+
+	v := reflect.ValueOf(&s).Elem()
+
+	if err := setScalar(v.FieldByName("Str"), "hello"); err != nil {
+		t.Fatalf("setScalar(string): %v", err)
+	}
+	if s.Str != "hello" {
+		t.Errorf("string = %q", s.Str)
+	}
+
+	if err := setScalar(v.FieldByName("Num"), "42"); err != nil {
+		t.Fatalf("setScalar(int): %v", err)
+	}
+	if s.Num != 42 {
+		t.Errorf("int = %d", s.Num)
+	}
+
+	if err := setScalar(v.FieldByName("Flg"), "true"); err != nil {
+		t.Fatalf("setScalar(bool): %v", err)
+	}
+	if !s.Flg {
+		t.Error("bool = false, want true")
+	}
+
+	// Bad integer.
+	if err := setScalar(v.FieldByName("Num"), "abc"); err == nil {
+		t.Error("bad integer must be an error")
+	}
+
+	// Bad boolean.
+	if err := setScalar(v.FieldByName("Flg"), "maybe"); err == nil {
+		t.Error("bad boolean must be an error")
+	}
+}
+
+// ParseDraft extracts the objective and proposed title from a model's free-text
+// response. Covered here to lock the contract.
+func TestConfigPathHomeFallback(t *testing.T) {
+	t.Setenv("ROOK_CONFIG", "")
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("HOME", "/tmp/rook-test-home")
+
+	if got := DefaultConfigPath(); got != "/tmp/rook-test-home/.config/rook/config.yaml" {
+		t.Errorf("home fallback = %q", got)
+	}
+}

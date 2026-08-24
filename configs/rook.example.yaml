@@ -42,6 +42,14 @@ agent:
 # Default: $XDG_STATE_HOME/rook/runs (i.e. ~/.local/state/rook/runs).
 # run_dir: '~/.local/state/rook/runs'
 
+# Update check. After a run, rook asks GitHub for the latest release and prints a
+# one-line notice (with the upgrade command) when the binary is out of date -
+# the only call it makes that is not to the model provider. Disable it on an
+# air-gapped or locked-down host that should reach nothing but the provider.
+# Also settable with ROOK_UPDATE_CHECK_DISABLED=true (no config file needed).
+# update_check:
+#   disabled: true
+
 # Backends are the providers a run can target. Rook talks to each one directly
 # over the OpenAI-compatible API - there is no gateway and no account in between.
 # Pick one per run with --backend; otherwise default_backend is used.

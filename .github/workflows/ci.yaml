@@ -30,12 +30,12 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
-          go-version: 'stable'
+          go-version-file: go.mod
 
       - name: Vet
         run: go vet ./...
@@ -54,11 +54,16 @@ jobs:
       - name: Test
         run: go test ./... -count=1 -race
 
+      # Fail the build if total coverage falls below 55%. Same script as
+      # `make cover-check`, so a contributor sees the gate locally before CI.
+      - name: Coverage gate
+        run: ./scripts/coverage.sh
+
       - name: Build
-        run: CGO_ENABLED=0 go build -trimpath ./cmd/rook
+        run: make build
 
       - name: Build (developer build)
-        run: CGO_ENABLED=0 go build -trimpath -tags dev ./cmd/rook
+        run: make dev
 
   cross-compile:
     name: Build (${{ matrix.goos }}/${{ matrix.goarch }})
@@ -83,12 +88,12 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
-          go-version: 'stable'
+          go-version-file: go.mod
 
       - name: Cross-compile
         env:

@@ -4,13 +4,20 @@ SHELL := /bin/bash
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS  = -s -w -X github.com/pdparchitect/rook/internal/version.Version=$(VERSION)
 
+# go.mod pins the minimum patched toolchain. Some official Go and development
+# images export GOTOOLCHAIN=local, which turns a stale patch release into a hard
+# failure instead of letting Go fetch the required toolchain. A command-line
+# override (for example `make test GOTOOLCHAIN=local`) still takes precedence.
+GOTOOLCHAIN = auto
+export GOTOOLCHAIN
+
 CMD       = rook
 PLATFORMS = linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64
 
 GOOS   ?= $(shell go env GOHOSTOS)
 GOARCH ?= $(shell go env GOHOSTARCH)
 
-.PHONY: help build dev run test race vet fmt lint clean dist cross
+.PHONY: help build dev run test race cover cover-check vet fmt lint clean dist cross
 
 # Listing the targets rather than assuming one: rook has two build variants that
 # differ in what the binary may read from disk, and picking the wrong one
@@ -22,6 +29,8 @@ help:
 	@echo "  make dev        Build ./rook for development - see below"
 	@echo "  make test       Run the test suite"
 	@echo "  make race       Run the test suite under the race detector"
+	@echo "  make cover      Report per-package test coverage"
+	@echo "  make cover-check  Fail if total coverage is below 75% (CI gate)"
 	@echo "  make vet        Run go vet over both build variants"
 	@echo "  make fmt        Format the tree"
 	@echo "  make lint       Alias for vet"
@@ -61,6 +70,14 @@ test:
 
 race:
 	go test -race ./... -count=1
+
+cover:
+	@go test -cover ./... -count=1 | grep coverage | sed 's|github.com/pdparchitect/rook||'
+
+# The coverage gate, shared with CI so local and CI enforce the same number.
+# Override the bar with COVERAGE_THRESHOLD=80 make cover-check.
+cover-check:
+	@./scripts/coverage.sh
 
 # Both variants, because a build tag can break a compile the default never
 # reaches - and the developer build is the one no pipeline exercises.
