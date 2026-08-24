@@ -1,7 +1,7 @@
 <h1 align="center">Rook</h1>
 
 <p align="center">
-  <strong>Point it at a target. Walk away. Come back to findings.</strong>
+  <strong>An autonomous offensive security harness.</strong>
 </p>
 
 <p align="center">
@@ -42,7 +42,6 @@ Rook defaults to the `zai` provider running `glm-5.2`. Export a key, write an
 objective, hand it over:
 
 ```bash
-export ZAI_API_KEY="sk-..."
 rook new "Audit the HTTP handlers in ./server for injection and auth-bypass bugs"
 rook
 ```
@@ -90,15 +89,3 @@ Read [safety](docs/safety.md) first.
 | [Zot](https://github.com/openzot/openzot)        | The autonomous engine Rook runs on - an automated software factory in one binary |
 | [Pion](https://github.com/pdparchitect/pion)     | A defensive AI security harness for automatic monitoring and incident prevention |
 | [Pantalk](https://github.com/pantalk/pantalk)    | Connect coding agents to the chat platforms people already use                   |
-
-## License
-
-Rook is MIT licensed - see [LICENSE](LICENSE). It bundles no third-party content:
-skill collections are fetched at runtime and keep their own licenses (see
-[docs/skills.md](docs/skills.md#skill-collections)).
-
-## Status
-
-Rook is **0.x** and in active use. Flags, config and behavior may change before
-1.0 - pin a version and skim the [changelog](CHANGELOG.md) before upgrading.
-Small, focused pull requests are welcome; anything large is worth an issue first.
