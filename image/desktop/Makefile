@@ -33,7 +33,7 @@ GPU_DEVICE := $(shell for node in /dev/dri/renderD*; do \
 # key can also be saved into the config via `rook config` inside the session.
 PROVIDER_ENVS := ZAI_API_KEY OPENAI_API_KEY ANTHROPIC_API_KEY GROQ_API_KEY \
 	MISTRAL_API_KEY DEEPSEEK_API_KEY OPENROUTER_API_KEY TOGETHER_API_KEY \
-	CEREBRAS_API_KEY XAI_API_KEY MOONSHOT_API_KEY DASHSCOPE_API_KEY
+	CEREBRAS_API_KEY XAI_API_KEY MOONSHOT_API_KEY DASHSCOPE_API_KEY ABLIT_KEY
 KEY_ENV := $(foreach v,$(PROVIDER_ENVS),\
 	$(if $(strip $($(v))),--env "$(v)=$($(v))",))
 

@@ -20,6 +20,7 @@
 #   together   -> TOGETHER_API_KEY        cerebras   -> CEREBRAS_API_KEY
 #   xai        -> XAI_API_KEY             moonshot   -> MOONSHOT_API_KEY
 #   zai        -> ZAI_API_KEY             qwen       -> DASHSCOPE_API_KEY
+#   abliteration -> ABLIT_KEY
 #   ollama     -> none (local)
 
 agent:
@@ -87,6 +88,12 @@ providers:
 
   anthropic:
     # api_key: '$ANTHROPIC_API_KEY'
+
+  # Abliteration.ai hosts less-restrictive models for security research over the
+  # OpenAI-compatible API: abliterated-model, abliterated-model-large.
+  # See https://docs.abliteration.ai.
+  abliteration:
+    # api_key: '$ABLIT_KEY'
 
   # A local model needs no key, and never sends data off the machine - the right
   # default for security work on material that must not leave.

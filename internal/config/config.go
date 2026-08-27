@@ -189,25 +189,29 @@ type ModelConfig struct {
 // needs.
 //
 // The endpoints themselves live in the engine, which is what actually calls
-// them; duplicating the URLs here would give two places for them to drift.
+// them; duplicating the URLs here would give two places for them to drift. The
+// exception is a provider the engine does not know, such as Abliteration.ai -
+// its endpoint has to be seeded here or the backend cannot resolve.
 // Ollama is deliberately included: a local model is the right default for
 // security work on material that must not leave the machine.
 var builtinProviders = map[string]struct {
 	secretEnv string // the provider's conventional credential variable
+	baseURL   string // the endpoint, only when the engine does not know the provider
 }{
-	"openai":     {secretEnv: "OPENAI_API_KEY"},
-	"anthropic":  {secretEnv: "ANTHROPIC_API_KEY"},
-	"groq":       {secretEnv: "GROQ_API_KEY"},
-	"mistral":    {secretEnv: "MISTRAL_API_KEY"},
-	"deepseek":   {secretEnv: "DEEPSEEK_API_KEY"},
-	"openrouter": {secretEnv: "OPENROUTER_API_KEY"},
-	"together":   {secretEnv: "TOGETHER_API_KEY"},
-	"cerebras":   {secretEnv: "CEREBRAS_API_KEY"},
-	"xai":        {secretEnv: "XAI_API_KEY"},
-	"moonshot":   {secretEnv: "MOONSHOT_API_KEY"},
-	"zai":        {secretEnv: "ZAI_API_KEY"},
-	"qwen":       {secretEnv: "DASHSCOPE_API_KEY"},
-	"ollama":     {},
+	"openai":       {secretEnv: "OPENAI_API_KEY"},
+	"anthropic":    {secretEnv: "ANTHROPIC_API_KEY"},
+	"groq":         {secretEnv: "GROQ_API_KEY"},
+	"mistral":      {secretEnv: "MISTRAL_API_KEY"},
+	"deepseek":     {secretEnv: "DEEPSEEK_API_KEY"},
+	"openrouter":   {secretEnv: "OPENROUTER_API_KEY"},
+	"together":     {secretEnv: "TOGETHER_API_KEY"},
+	"cerebras":     {secretEnv: "CEREBRAS_API_KEY"},
+	"xai":          {secretEnv: "XAI_API_KEY"},
+	"moonshot":     {secretEnv: "MOONSHOT_API_KEY"},
+	"zai":          {secretEnv: "ZAI_API_KEY"},
+	"qwen":         {secretEnv: "DASHSCOPE_API_KEY"},
+	"abliteration": {secretEnv: "ABLIT_KEY", baseURL: "https://api.abliteration.ai/v1"},
+	"ollama":       {},
 }
 
 // ProviderDriver returns the driver a provider connection uses, inferring it
@@ -275,8 +279,9 @@ func Load(path string) (Config, error) {
 // credential: a config "$ENV_VAR" reference first, then the provider's
 // conventional environment variable as a fallback.
 //
-// The endpoint is left empty for a built-in. The engine knows each provider's
-// URL, so filling one in here would create a second copy to drift.
+// The endpoint is left empty for a built-in the engine knows - the engine fills
+// it in, so filling one in here would create a second copy to drift. A built-in
+// the engine does not know gets its endpoint seeded from the table above.
 func resolveProviders(cfg *Config) {
 	if cfg.Providers == nil {
 		cfg.Providers = map[string]ProviderConfig{}
@@ -307,6 +312,10 @@ func resolveProviders(cfg *Config) {
 		// written for it.
 		if p.APIKey == "" && isBuiltin && builtin.secretEnv != "" && !overridden {
 			p.APIKey = strings.TrimSpace(os.Getenv(builtin.secretEnv))
+		}
+
+		if p.BaseURL == "" && isBuiltin && builtin.baseURL != "" {
+			p.BaseURL = builtin.baseURL
 		}
 
 		for mName, mc := range p.Models {
