@@ -8,7 +8,7 @@ find and demonstrate weaknesses, and write up what they found. You decide what i
 
 <a href="https://github.com/pdparchitect/noodle/releases/download/rook-latest/Rook-arm64.dmg"><img alt="Download Rook for Mac" src="https://img.shields.io/badge/Download%20for%20Mac-1f2328?style=for-the-badge&logo=apple&logoColor=white" height="44"></a>
 
-[Get started](#get-started) · [Features](#features) · [Source](https://github.com/pdparchitect/noodle/tree/main/Incubator/Rook) · [Changelog](https://github.com/pdparchitect/noodle/blob/main/Incubator/Rook/CHANGELOG.md) · [License](https://github.com/pdparchitect/noodle/blob/main/Incubator/Rook/LICENSE.md)
+[Website](https://websecurify.com/rook) · [Get started](#get-started) · [Features](#features) · [Source](https://github.com/pdparchitect/noodle/tree/main/Incubator/Rook) · [Changelog](https://github.com/pdparchitect/noodle/blob/main/Incubator/Rook/CHANGELOG.md) · [License](https://github.com/pdparchitect/noodle/blob/main/Incubator/Rook/LICENSE.md)
 
 </div>
 
@@ -112,4 +112,4 @@ under Apache 2.0.
 
 ## Project
 
-[Changelog](https://github.com/pdparchitect/noodle/blob/main/Incubator/Rook/CHANGELOG.md) · [Contributing](https://github.com/pdparchitect/noodle/blob/main/Incubator/Rook/CONTRIBUTING.md) · [Noodle](https://github.com/pdparchitect/noodle) · [Pion](https://github.com/pdparchitect/pion) · [@pdp on X](https://x.com/pdp)
+[Website](https://websecurify.com/rook) · [Changelog](https://github.com/pdparchitect/noodle/blob/main/Incubator/Rook/CHANGELOG.md) · [Contributing](https://github.com/pdparchitect/noodle/blob/main/Incubator/Rook/CONTRIBUTING.md) · [Noodle](https://github.com/pdparchitect/noodle) · [Pion](https://github.com/pdparchitect/pion) · [@pdp on X](https://x.com/pdp)
