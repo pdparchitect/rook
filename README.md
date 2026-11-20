@@ -1,4 +1,4 @@
-<img width="100%" alt="Rook: a dark chess rook bearing a red shield, beside the words Rook, AI bug hunting harness." src=".github/readme/banner.jpg" />
+<img width="100%" alt="Rook: a dark chess rook bearing a red shield, beside the words Rook, Autonomous AI red team." src=".github/readme/banner.jpg" />
 
 <div align="center">
 
